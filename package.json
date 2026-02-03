@@ -1,0 +1,32 @@
+{
+  "name": "google-ads-scraper",
+  "version": "1.0.0",
+  "description": "Scrape Google Ads Transparency Center for competitor ads",
+  "main": "dist/index.js",
+  "bin": {
+    "google-ads-scraper": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "ts-node src/index.ts",
+    "scrape": "ts-node src/index.ts scrape"
+  },
+  "keywords": [
+    "google-ads",
+    "scraper",
+    "transparency-center",
+    "competitor-analysis"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "commander": "^11.1.0",
+    "playwright": "^1.40.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.5",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3"
+  }
+}
