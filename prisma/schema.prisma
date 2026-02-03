@@ -1,0 +1,65 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../node_modules/.prisma/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Advertiser {
+  id                 String   @id // AR17828074650563772417
+  name               String
+  verificationStatus String   @map("verification_status")
+  location           String?
+  domain             String?  @unique
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  ads            AdCreative[]
+  scrapeSessions ScrapeSession[]
+
+  @@map("advertisers")
+}
+
+model AdCreative {
+  id             String   @id // CR03335465984256376833
+  advertiserId   String   @map("advertiser_id")
+  format         String // text, image, video
+  platforms      String[] // array of platforms: google_search, youtube, etc.
+  targetDomain   String?  @map("target_domain")
+  firstShown     String?  @map("first_shown")
+  lastShown      String?  @map("last_shown")
+  totalDaysShown Int      @default(0) @map("total_days_shown")
+  detailsUrl     String   @map("details_url")
+  previewUrl     String?  @map("preview_url")
+  headline       String?
+  description    String?
+  imageUrl       String?  @map("image_url")
+  videoUrl       String?  @map("video_url")
+  regionStats    Json     @default("[]") @map("region_stats")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  advertiser Advertiser @relation(fields: [advertiserId], references: [id], onDelete: Cascade)
+
+  @@index([advertiserId])
+  @@index([format])
+  @@map("ad_creatives")
+}
+
+model ScrapeSession {
+  id           Int       @id @default(autoincrement())
+  advertiserId String    @map("advertiser_id")
+  startedAt    DateTime  @default(now()) @map("started_at")
+  completedAt  DateTime? @map("completed_at")
+  adsFound     Int       @default(0) @map("ads_found")
+  status       String    @default("IN_PROGRESS")
+  errorMessage String?   @map("error_message")
+
+  advertiser Advertiser @relation(fields: [advertiserId], references: [id], onDelete: Cascade)
+
+  @@index([advertiserId])
+  @@map("scrape_sessions")
+}

@@ -1,11 +1,9 @@
-import { initDatabase, getAllAdvertisers, getAdCount, closeDatabase } from '../database/db';
+import { getAllAdvertisers, getAdCount } from '../database/repository';
 import { logger } from '../utils/logger';
 
 export async function listAdvertisers(): Promise<void> {
-  initDatabase();
-
   try {
-    const advertisers = getAllAdvertisers();
+    const advertisers = await getAllAdvertisers();
 
     if (advertisers.length === 0) {
       logger.info('No advertisers found. Run a scrape first.');
@@ -28,19 +26,19 @@ export async function listAdvertisers(): Promise<void> {
     console.log('-'.repeat(95));
 
     for (const adv of advertisers) {
-      const adCount = getAdCount(adv.id);
+      const adCount = await getAdCount(adv.id);
       console.log(
         adv.id.substring(0, 23).padEnd(25) +
           (adv.name || 'Unknown').substring(0, 28).padEnd(30) +
           (adv.domain || '-').substring(0, 18).padEnd(20) +
           adCount.toString().padEnd(8) +
-          adv.updated_at
+          adv.updatedAt.toISOString().split('T')[0]
       );
     }
 
     logger.info('');
     logger.info(`Total: ${advertisers.length} advertisers`);
-  } finally {
-    closeDatabase();
+  } catch (error) {
+    logger.error('Failed to list advertisers:', error);
   }
 }

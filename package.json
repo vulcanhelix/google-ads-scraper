@@ -8,9 +8,15 @@
   },
   "scripts": {
     "build": "tsc",
-    "start": "node dist/index.js",
+    "start": "node dist/api/server.js",
     "dev": "ts-node src/index.ts",
-    "scrape": "ts-node src/index.ts scrape"
+    "scrape": "ts-node src/index.ts scrape",
+    "api": "tsx src/api/server.ts",
+    "api:dev": "tsx watch src/api/server.ts",
+    "db:generate": "prisma generate",
+    "db:push": "prisma db push",
+    "db:migrate": "prisma migrate dev",
+    "db:studio": "prisma studio"
   },
   "keywords": [
     "google-ads",
@@ -21,12 +27,18 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "@fastify/cors": "^11.2.0",
+    "@prisma/client": "^5.8.0",
     "commander": "^11.1.0",
+    "dotenv": "^17.2.3",
+    "fastify": "^5.7.4",
     "playwright": "^1.40.1"
   },
   "devDependencies": {
     "@types/node": "^20.10.5",
+    "prisma": "^5.8.0",
     "ts-node": "^10.9.2",
+    "tsx": "^4.21.0",
     "typescript": "^5.3.3"
   }
 }

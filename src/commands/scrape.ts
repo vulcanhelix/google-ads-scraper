@@ -2,13 +2,11 @@ import { createBrowser, createContext, createPage } from '../scraper/browser';
 import { lookupAdvertiserByDomain } from '../scraper/advertiser';
 import { scrapeAdvertiserAds } from '../scraper/ads';
 import {
-  initDatabase,
   upsertAdvertiser,
   upsertAdCreatives,
   startScrapeSession,
   completeScrapeSession,
-  closeDatabase,
-} from '../database/db';
+} from '../database/repository';
 import { exportToJson, exportToCsv } from '../export';
 import { ScrapeFilters, Advertiser, ScrapeResult, AdFormat, AdPlatform } from '../types';
 import { logger } from '../utils/logger';
@@ -27,7 +25,7 @@ export async function scrape(domain: string, options: ScrapeOptions): Promise<vo
   logger.info(`Starting scrape for domain: ${domain}`);
   logger.info(`Options: ${JSON.stringify(options)}`);
 
-  initDatabase();
+
 
   const browser = await createBrowser({ headless: options.headless });
   const context = await createContext(browser, { headless: options.headless });
@@ -61,7 +59,7 @@ export async function scrape(domain: string, options: ScrapeOptions): Promise<vo
 
     upsertAdvertiser(advertiser);
 
-    sessionId = startScrapeSession(advertiser.id);
+    sessionId = await startScrapeSession(advertiser.id);
 
     logger.info('Step 2: Scraping ads...');
 
@@ -106,7 +104,9 @@ export async function scrape(domain: string, options: ScrapeOptions): Promise<vo
       await exportToCsv(exportData, options.outputDir, domain);
     }
 
-    completeScrapeSession(sessionId, scrapeResult.ads.length);
+    if (sessionId) {
+      await completeScrapeSession(sessionId, scrapeResult.ads.length);
+    }
 
     logger.info('');
     logger.info('='.repeat(50));
@@ -126,6 +126,5 @@ export async function scrape(domain: string, options: ScrapeOptions): Promise<vo
     throw error;
   } finally {
     await browser.close();
-    closeDatabase();
   }
 }
