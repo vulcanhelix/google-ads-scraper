@@ -22,6 +22,11 @@ interface ScrapeOptions {
 }
 
 export async function scrape(domain: string, options: ScrapeOptions): Promise<void> {
+  if (!options.max || options.max > 10) {
+    options.max = 10;
+    logger.info('Max results capped at 10');
+  }
+
   logger.info(`Starting scrape for domain: ${domain}`);
   logger.info(`Options: ${JSON.stringify(options)}`);
 
@@ -84,6 +89,12 @@ export async function scrape(domain: string, options: ScrapeOptions): Promise<vo
 
     logger.info('Step 3: Saving to database...');
     upsertAdCreatives(scrapeResult.ads);
+    await upsertAdvertiser({
+      ...advertiser,
+      lastScrapedAt: new Date().toISOString(),
+      lastTotalAdsFound: scrapeResult.totalFound,
+      lastScrapeRegion: options.region,
+    });
 
     logger.info('Step 4: Exporting data...');
 

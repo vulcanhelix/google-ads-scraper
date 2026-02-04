@@ -10,6 +10,9 @@ export async function upsertAdvertiser(advertiser: Advertiser) {
       verificationStatus: advertiser.verificationStatus,
       location: advertiser.location,
       domain: advertiser.domain,
+      lastScrapedAt: advertiser.lastScrapedAt ? new Date(advertiser.lastScrapedAt) : undefined,
+      lastTotalAdsFound: advertiser.lastTotalAdsFound,
+      lastScrapeRegion: advertiser.lastScrapeRegion,
     },
     create: {
       id: advertiser.id,
@@ -17,6 +20,9 @@ export async function upsertAdvertiser(advertiser: Advertiser) {
       verificationStatus: advertiser.verificationStatus,
       location: advertiser.location,
       domain: advertiser.domain,
+      lastScrapedAt: advertiser.lastScrapedAt ? new Date(advertiser.lastScrapedAt) : undefined,
+      lastTotalAdsFound: advertiser.lastTotalAdsFound,
+      lastScrapeRegion: advertiser.lastScrapeRegion,
     },
   });
 }
@@ -62,6 +68,8 @@ export async function upsertAdCreatives(ads: AdCreative[]) {
         previewUrl: ad.previewUrl,
         headline: ad.headline,
         description: ad.description,
+        headlineConfidence: ad.headlineConfidence,
+        descriptionConfidence: ad.descriptionConfidence,
         imageUrl: ad.imageUrl,
         videoUrl: ad.videoUrl,
         regionStats: ad.regionStats as any,
@@ -79,6 +87,8 @@ export async function upsertAdCreatives(ads: AdCreative[]) {
         previewUrl: ad.previewUrl,
         headline: ad.headline,
         description: ad.description,
+        headlineConfidence: ad.headlineConfidence,
+        descriptionConfidence: ad.descriptionConfidence,
         imageUrl: ad.imageUrl,
         videoUrl: ad.videoUrl,
         regionStats: ad.regionStats as any,
@@ -99,6 +109,21 @@ export async function getAdsByAdvertiser(advertiserId: string) {
     console.error(`Error fetching ads for advertiser ${advertiserId}:`, error);
     throw new Error('Failed to fetch ads from database');
   }
+}
+
+export async function updateAdCreativeText(
+  id: string,
+  data: {
+    headline?: string | null;
+    description?: string | null;
+    headlineConfidence?: number | null;
+    descriptionConfidence?: number | null;
+  }
+) {
+  return prisma.adCreative.update({
+    where: { id },
+    data,
+  });
 }
 
 export async function getAdCount(advertiserId: string) {

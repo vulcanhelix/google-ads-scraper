@@ -17,6 +17,17 @@ export async function adsRoutes(fastify: FastifyInstance) {
     };
   });
 
+  fastify.get('/advertiser/:advertiserId/ocr', async (request) => {
+    const { advertiserId } = request.params as { advertiserId: string };
+    const ads = await getAdsByAdvertiser(advertiserId);
+    const ocrAds = ads.filter((ad) => ad.headline || ad.description);
+
+    return {
+      count: ocrAds.length,
+      ads: ocrAds,
+    };
+  });
+
   fastify.get('/:id', async (request, reply) => {
     const { id } = request.params as { id: string };
     const ad = await prisma.adCreative.findUnique({

@@ -16,8 +16,8 @@ export async function scrapeAdvertiserAds(
   advertiserId: string,
   filters?: ScrapeFilters
 ): Promise<AdScrapeResult> {
-  const ads: AdCreative[] = [];
-  const errors: string[] = [];
+    const ads: AdCreative[] = [];
+    const errors: string[] = [];
 
   try {
     logger.info(`Scraping ads for advertiser: ${advertiserId}`);
@@ -49,6 +49,7 @@ export async function scrapeAdvertiserAds(
     await page.waitForLoadState('networkidle').catch(() => {});
 
     await waitForAdsToLoad(page);
+    await waitForPreviewImages(page);
 
     const totalCount = await extractTotalAdCount(page);
     logger.info(`Total ads reported: ${totalCount || 'unknown'}`);
@@ -125,7 +126,9 @@ export async function scrapeAdvertiserAds(
       }
     }
 
+    const previewCount = ads.filter((ad) => Boolean(ad.previewUrl)).length;
     logger.info(`Collected ${ads.length} ads from list page`);
+    logger.info(`Preview URLs found: ${previewCount}/${ads.length}`);
 
     return {
       success: true,
@@ -171,6 +174,25 @@ async function waitForAdsToLoad(page: Page): Promise<void> {
   await delay(3000);
 }
 
+async function waitForPreviewImages(page: Page): Promise<void> {
+  try {
+    await page.waitForFunction(
+      () => {
+        const images = document.querySelectorAll('a[aria-label^="Advertisement"] img');
+        return Array.from(images).some((img) => {
+          const src = img.getAttribute('src');
+          const dataSrc = img.getAttribute('data-src') || img.getAttribute('data-lazy-src');
+          const srcset = img.getAttribute('srcset');
+          return Boolean(src || dataSrc || srcset);
+        });
+      },
+      { timeout: 8000 }
+    );
+  } catch {
+    await delay(1500);
+  }
+}
+
 async function extractTotalAdCount(page: Page): Promise<number | null> {
   try {
     const pageText = (await page.textContent('body')) || '';
@@ -203,6 +225,29 @@ async function extractVisibleAds(
     const ads: AdCreative[] = [];
     const seenIds = new Set<string>();
 
+    const normalizeUrl = (value: string | null): string | undefined => {
+      if (!value) return undefined;
+      if (value.startsWith('//')) return `https:${value}`;
+      return value;
+    };
+
+    const pickFromSrcset = (srcset: string | null): string | undefined => {
+      if (!srcset) return undefined;
+      const candidates = srcset
+        .split(',')
+        .map((entry) => entry.trim().split(' ')[0])
+        .filter(Boolean);
+      return normalizeUrl(candidates[0] || null);
+    };
+
+    const getImageUrl = (img: Element | null): string | undefined => {
+      if (!img) return undefined;
+      const src = img.getAttribute('src');
+      const dataSrc = img.getAttribute('data-src') || img.getAttribute('data-lazy-src');
+      const srcset = img.getAttribute('srcset');
+      return normalizeUrl(src) || normalizeUrl(dataSrc) || pickFromSrcset(srcset);
+    };
+
     // Use aria-label selector as discovered in browser inspection
     const creativeLinks = document.querySelectorAll('a[aria-label^="Advertisement"]');
 
@@ -229,14 +274,7 @@ async function extractVisibleAds(
 
         // Extract preview image URL (key for programmatic context)
         const previewImg = card.querySelector('img');
-        let previewUrl: string | undefined = undefined;
-        if (previewImg) {
-          const src = previewImg.getAttribute('src');
-          if (src) {
-            // Ensure full URL
-            previewUrl = src.startsWith('//') ? `https:${src}` : src;
-          }
-        }
+        const previewUrl = getImageUrl(previewImg);
 
         // Try to extract dates from card text
         const text = card.textContent || '';
@@ -272,13 +310,7 @@ async function extractVisibleAds(
           
           // Try to get preview image from fallback
           const img = link.querySelector('img');
-          let previewUrl: string | undefined = undefined;
-          if (img) {
-            const src = img.getAttribute('src');
-            if (src) {
-              previewUrl = src.startsWith('//') ? `https:${src}` : src;
-            }
-          }
+          const previewUrl = getImageUrl(img);
           
           ads.push({
             id: match[0],
@@ -319,4 +351,3 @@ async function scrollForMore(page: Page): Promise<boolean> {
 
   return newScrollHeight > previousScrollHeight;
 }
-

@@ -16,6 +16,9 @@ model Advertiser {
   verificationStatus String   @map("verification_status")
   location           String?
   domain             String?  @unique
+  lastScrapedAt       DateTime? @map("last_scraped_at")
+  lastTotalAdsFound   Int?      @map("last_total_ads_found")
+  lastScrapeRegion    String?   @map("last_scrape_region")
   createdAt          DateTime @default(now()) @map("created_at")
   updatedAt          DateTime @updatedAt @map("updated_at")
 
@@ -39,6 +42,8 @@ model AdCreative {
   previewUrl     String?  @map("preview_url")
   headline       String?
   description    String?
+  headlineConfidence Float? @map("headline_confidence")
+  descriptionConfidence Float? @map("description_confidence")
   imageUrl       String?  @map("image_url")
   videoUrl       String?  @map("video_url")
   regionStats    Json     @default("[]") @map("region_stats")

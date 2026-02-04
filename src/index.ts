@@ -4,6 +4,7 @@ import { Command } from 'commander';
 import { scrape } from './commands/scrape';
 import { exportData } from './commands/export';
 import { listAdvertisers } from './commands/list';
+import { runOcr } from './commands/ocr';
 import { logger } from './utils/logger';
 
 const program = new Command();
@@ -55,6 +56,20 @@ program
       await listAdvertisers();
     } catch (error) {
       logger.error('List failed:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
+program
+  .command('ocr <domain>')
+  .description('Run OCR on preview images for a domain')
+  .option('-l, --limit <number>', 'Maximum number of ads to process', parseInt)
+  .option('-f, --force', 'Reprocess ads even if headline exists')
+  .action(async (domain: string, options) => {
+    try {
+      await runOcr(domain, options);
+    } catch (error) {
+      logger.error('OCR failed:', error instanceof Error ? error.message : error);
       process.exit(1);
     }
   });

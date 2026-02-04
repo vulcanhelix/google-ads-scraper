@@ -4,6 +4,9 @@ export interface Advertiser {
   verificationStatus: string;
   location?: string;
   domain?: string;
+  lastScrapedAt?: string;
+  lastTotalAdsFound?: number;
+  lastScrapeRegion?: string;
 }
 
 export type AdFormat = 'text' | 'image' | 'video';
@@ -39,6 +42,8 @@ export interface AdCreative {
   regionStats: AdRegionStats[];
   headline?: string;
   description?: string;
+  headlineConfidence?: number;
+  descriptionConfidence?: number;
   imageUrl?: string;
   videoUrl?: string;
 }

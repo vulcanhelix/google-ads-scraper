@@ -20,22 +20,22 @@ export async function scrapeRoutes(fastify: FastifyInstance) {
     }
 
     // Validate maxResults
-    if (body.maxResults && (body.maxResults < 1 || body.maxResults > 1000)) {
+    if (body.maxResults && (body.maxResults < 1 || body.maxResults > 10)) {
       return reply.code(400).send({
         statusCode: 400,
         error: 'Bad Request',
-        message: 'maxResults must be between 1 and 1000'
+        message: 'maxResults must be between 1 and 10'
       });
     }
 
     const options = {
       region: body.region,
-      max: body.maxResults,
+      max: body.maxResults || 10,
       headless: true,
       output: 'json' as const,
       outputDir: './data/exports',
       format: undefined,
-      platform: undefined
+      platform: undefined,
     };
 
     try {
