@@ -1,11 +1,13 @@
 generator client {
-  provider = "prisma-client-js"
-  output   = "../node_modules/.prisma/client"
+  provider        = "prisma-client-js"
+  output          = "../node_modules/.prisma/client"
+  previewFeatures = ["multiSchema"]
 }
 
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+  schemas  = ["ads_scraper"]
 }
 
 model Advertiser {
@@ -21,6 +23,7 @@ model Advertiser {
   scrapeSessions ScrapeSession[]
 
   @@map("advertisers")
+  @@schema("ads_scraper")
 }
 
 model AdCreative {
@@ -47,6 +50,7 @@ model AdCreative {
   @@index([advertiserId])
   @@index([format])
   @@map("ad_creatives")
+  @@schema("ads_scraper")
 }
 
 model ScrapeSession {
@@ -62,4 +66,5 @@ model ScrapeSession {
 
   @@index([advertiserId])
   @@map("scrape_sessions")
+  @@schema("ads_scraper")
 }
