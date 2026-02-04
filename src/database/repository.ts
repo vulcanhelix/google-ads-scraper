@@ -34,9 +34,14 @@ export async function getAdvertiserById(id: string) {
 }
 
 export async function getAllAdvertisers() {
-  return prisma.advertiser.findMany({
-    orderBy: { updatedAt: 'desc' },
-  });
+  try {
+    return prisma.advertiser.findMany({
+      orderBy: { updatedAt: 'desc' },
+    });
+  } catch (error) {
+    console.error('Error fetching advertisers:', error);
+    throw new Error('Failed to fetch advertisers from database');
+  }
 }
 
 export async function upsertAdCreatives(ads: AdCreative[]) {
@@ -85,10 +90,15 @@ export async function upsertAdCreatives(ads: AdCreative[]) {
 }
 
 export async function getAdsByAdvertiser(advertiserId: string) {
-  return prisma.adCreative.findMany({
-    where: { advertiserId },
-    orderBy: { firstShown: 'desc' },
-  });
+  try {
+    return prisma.adCreative.findMany({
+      where: { advertiserId },
+      orderBy: { firstShown: 'desc' },
+    });
+  } catch (error) {
+    console.error(`Error fetching ads for advertiser ${advertiserId}:`, error);
+    throw new Error('Failed to fetch ads from database');
+  }
 }
 
 export async function getAdCount(advertiserId: string) {
