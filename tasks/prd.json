@@ -29,6 +29,12 @@
       "title": "Document in-memory OCR queue persistence limits",
       "acceptanceCriteria": "Docs mention OCR queue state resets on server restart",
       "passes": true
+    },
+    {
+      "id": "6",
+      "title": "Add comprehensive project timeline to docs",
+      "acceptanceCriteria": "README and API docs capture a clear, end-to-end timeline of major changes through hardening and review",
+      "passes": true
     }
   ]
 }

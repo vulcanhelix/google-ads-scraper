@@ -1,15 +1,18 @@
 # Google Ads Transparency Center Scraper
 
-A zero-cost scraper that extracts all Google Ads a company is running from the [Google Ads Transparency Center](https://adstransparency.google.com).
+A zero-cost scraper that extracts Google Ads a company is running from the [Google Ads Transparency Center](https://adstransparency.google.com).
 
 ## Features
 
 - 🔍 Search by domain name (e.g., `tesla.com`)
 - 📊 Extract all active ads for any advertiser
-- 💾 Store results in SQLite database
+- 💾 Store results in NeonDB (Postgres) via Prisma
 - 📁 Export to JSON or CSV
 - 🔄 Handles pagination/infinite scroll automatically
 - 🛡️ Anti-detection measures built-in
+- 🧠 Preview image extraction for programmatic ad context
+- 🔎 Optional OCR pipeline for surface-level messaging insights
+- 🔐 API key auth + rate limiting for write endpoints
 
 ## Installation
 
@@ -35,7 +38,7 @@ npm run scrape -- tesla.com
 npm run scrape -- tesla.com --no-headless
 
 # With filters
-npm run scrape -- nike.com --region US --format video --max 50
+npm run scrape -- nike.com --region US --format video --max 10
 
 # Export as both JSON and CSV
 npm run scrape -- apple.com --output both
@@ -60,7 +63,7 @@ npx ts-node src/index.ts export tesla.com --output csv
 | `-r, --region <code>` | Filter by region (US, GB, DE, etc.) | All regions |
 | `-f, --format <type>` | Filter by format (text, image, video) | All formats |
 | `-p, --platform <name>` | Filter by platform (youtube, google_search) | All platforms |
-| `-m, --max <number>` | Maximum number of ads to scrape | Unlimited |
+| `-m, --max <number>` | Maximum number of ads to scrape (capped at 10) | 10 |
 | `--headless` | Run browser in headless mode | `true` |
 | `--no-headless` | Show browser window | `false` |
 | `-o, --output <format>` | Output format (json, csv, both) | `json` |
@@ -115,12 +118,11 @@ Google_Ads_Scraper/
 │   │   ├── advertiser.ts     # Advertiser lookup
 │   │   ├── ads.ts            # Ads scraping
 │   │   └── parser.ts         # HTML parsing
-│   ├── database/             # SQLite storage
+│   ├── database/             # Prisma + NeonDB storage
 │   ├── export/               # JSON/CSV export
 │   ├── commands/             # CLI commands
 │   └── utils/                # Utilities
 ├── data/
-│   ├── ads.db                # SQLite database
 │   └── exports/              # Exported files
 └── package.json
 ```
@@ -134,9 +136,31 @@ This scraper uses the [Google Ads Transparency Center](https://adstransparency.g
 
 ## Limitations
 
-- Rate limiting: Add delays between requests to avoid blocks
+- Rate limiting: Server enforces write limits for scrape/OCR
 - Dynamic content: Requires JavaScript rendering (handled by Playwright)
 - Data freshness: Ads data may be slightly delayed from real-time
+
+## API
+
+See `API_USAGE.md` for endpoints, auth, OCR, and combined scrape+OCR usage.
+
+## OCR Notes
+
+- OCR runs via `tesseract.js` and is capped at 10 creatives per run.
+- OCR queue is in-memory; queued jobs are lost on server restart.
+
+## Timeline
+
+- Initial CLI scraper with list-page extraction, JSON/CSV export, and Playwright pagination.
+- Added Prisma + NeonDB persistence and API server endpoints for advertisers/ads.
+- Improved list-page selectors and preview URL extraction for programmatic ad context.
+- Added advertiser scrape summary metadata (last scrape time, total ads found, region).
+- Added OCR pipeline (tesseract.js) with cleaned headline/description extraction and confidence fields.
+- Added async OCR queue with job status and `/api/ocr` endpoints.
+- Added combined `/api/ocr/combined` endpoint to run scrape then queue OCR.
+- Hardened API with API key auth and rate limiting for write endpoints.
+- Improved OCR headline cleanup, rate-limit IP parsing, and auth-first enforcement.
+- Documented API usage, OCR behavior, and operational constraints.
 
 ## License
 
