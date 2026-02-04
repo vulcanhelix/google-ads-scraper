@@ -3,3 +3,8 @@ Extended advertiser summary to include last OCR run timestamp.
 Prepared Render deployment checklist for OCR queue and schema changes.
 Added API rate limiting and API key auth for scrape/OCR routes.
 Added combined scrape+OCR endpoint to sequence requests.
+Replaced combined endpoint inject with direct scrape invocation.
+Normalized x-forwarded-for handling for rate limiting.
+Ensured auth runs before rate limiting hooks.
+Trimmed OCR headline leading non-alphabetic characters.
+Documented OCR queue persistence limitations in API usage guide.

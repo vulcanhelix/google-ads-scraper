@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { enqueueOcrJob, getOcrJob } from '../../ocr/queue';
+import { scrape } from '../../commands/scrape';
 
 export async function ocrRoutes(fastify: FastifyInstance) {
   fastify.post('/', async (request, reply) => {
@@ -59,21 +60,18 @@ export async function ocrRoutes(fastify: FastifyInstance) {
       return reply.code(400).send({ error: 'limit must be between 1 and 10' });
     }
 
-    const scrapeResponse = await fastify.inject({
-      method: 'POST',
-      url: '/api/scrape',
-      headers: request.headers as Record<string, string>,
-      payload: {
-        domain: body.domain,
+    try {
+      await scrape(body.domain, {
         region: body.region,
-        maxResults: body.maxResults || 10,
-      },
-    });
-
-    if (scrapeResponse.statusCode >= 400) {
-      return reply.code(scrapeResponse.statusCode).send({
+        max: body.maxResults || 10,
+        headless: true,
+        output: 'json',
+        outputDir: './data/exports',
+      });
+    } catch (error) {
+      return reply.code(500).send({
         error: 'Scrape failed',
-        message: scrapeResponse.body,
+        message: error instanceof Error ? error.message : String(error),
       });
     }
 

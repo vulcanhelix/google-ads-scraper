@@ -151,20 +151,86 @@ curl https://google-ads-scraper-cgqj.onrender.com/api/ads/CR03335465984256376833
 
 ---
 
+### 7. Run OCR
+Run OCR in the background and return a job id.
+
+**Endpoint:** `POST /api/ocr`
+
+**Request Body:**
+```json
+{
+  "domain": "tesla.com",
+  "limit": 5,
+  "force": true
+}
+```
+
+**Example:**
+```bash
+curl -X POST https://google-ads-scraper-cgqj.onrender.com/api/ocr \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: YOUR_API_KEY" \
+  -d '{
+    "domain": "tesla.com",
+    "limit": 5,
+    "force": true
+  }'
+```
+
+**Response:**
+```json
+{
+  "status": "queued",
+  "jobId": "ocr_1707060000000_ab12cd"
+}
+```
+
+Note: OCR jobs are processed by an in-memory queue. Queue state resets on server restart.
+
+---
+
+### 8. Combined Scrape + OCR
+Run a scrape and then queue OCR in a single call.
+
+**Endpoint:** `POST /api/ocr/combined`
+
+**Request Body:**
+```json
+{
+  "domain": "tesla.com",
+  "region": "US",
+  "maxResults": 10,
+  "limit": 5,
+  "force": false
+}
+```
+
+**Example:**
+```bash
+curl -X POST https://google-ads-scraper-cgqj.onrender.com/api/ocr/combined \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: YOUR_API_KEY" \
+  -d '{
+    "domain": "tesla.com",
+    "region": "US",
+    "maxResults": 10,
+    "limit": 5
+  }'
+```
+
+---
+
 ## 🔒 Authentication
 
-⚠️ **IMPORTANT: No authentication is currently implemented**
+Protected endpoints require an API key via the `x-api-key` header.
 
-This means:
-- Anyone with the URL can access your data
-- Anyone can trigger scrapes
-- No rate limiting is in place
+Protected endpoints:
+- `POST /api/scrape`
+- `POST /api/ocr`
+- `POST /api/ocr/combined`
+- `GET /api/ocr/:jobId`
 
-### Recommended for Production:
-1. **Add API Key Authentication** - Require `X-API-Key` header
-2. **Implement Rate Limiting** - Prevent abuse
-3. **IP Whitelisting** - Restrict access to known IPs
-4. **CORS Configuration** - Control which domains can access the API
+Set the key with `API_KEY` or `GOOGLE_ADS_SCRAPER_API_KEY`.
 
 ---
 

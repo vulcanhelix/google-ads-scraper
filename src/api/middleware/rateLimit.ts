@@ -19,8 +19,15 @@ function getLimitConfig() {
   };
 }
 
+function normalizeIp(raw: string | string[] | undefined): string | undefined {
+  if (!raw) return undefined;
+  if (Array.isArray(raw)) return raw[0];
+  return raw.split(',')[0]?.trim();
+}
+
 function getBucketKey(request: FastifyRequest, scope: string) {
-  const ip = request.ip || request.headers['x-forwarded-for'] || 'unknown';
+  const forwarded = normalizeIp(request.headers['x-forwarded-for'] as string | undefined);
+  const ip = request.ip || forwarded || 'unknown';
   return `${scope}:${ip}`;
 }
 

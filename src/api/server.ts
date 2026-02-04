@@ -22,8 +22,8 @@ async function start() {
 
   await server.register(cors, { origin: true });
 
-  registerRateLimit(server);
   registerAuth(server);
+  registerRateLimit(server);
 
   // Global error handler - ensures all errors return JSON
   server.setErrorHandler((error: FastifyError, request: FastifyRequest, reply: FastifyReply) => {

@@ -2,20 +2,32 @@
   "tasks": [
     {
       "id": "1",
-      "title": "Add API rate limiting for scrape/OCR",
-      "acceptanceCriteria": "Rate limits apply to /api/scrape and /api/ocr with 429 responses; limits configurable; does not block health or read-only endpoints",
+      "title": "Replace combined endpoint inject with direct scrape call",
+      "acceptanceCriteria": "Combined endpoint runs scrape without fastify.inject and returns OCR job id after scrape completes",
       "passes": true
     },
     {
       "id": "2",
-      "title": "Add API authentication",
-      "acceptanceCriteria": "Requests require API key header for /api/scrape and /api/ocr; unauthenticated requests get 401; key is configurable",
+      "title": "Enforce auth before rate limiting",
+      "acceptanceCriteria": "Requests without API key return 401 before any 429 rate limiting",
       "passes": true
     },
     {
       "id": "3",
-      "title": "Add combined scrape + OCR endpoint",
-      "acceptanceCriteria": "Single API call triggers scrape then enqueues OCR job; returns OCR job id; respects max limit caps",
+      "title": "Normalize rate-limit IP handling",
+      "acceptanceCriteria": "Rate limiter uses first x-forwarded-for IP and falls back safely",
+      "passes": true
+    },
+    {
+      "id": "4",
+      "title": "Improve OCR headline cleanup",
+      "acceptanceCriteria": "Headlines strip leading non-alphabetic junk while preserving meaningful words",
+      "passes": true
+    },
+    {
+      "id": "5",
+      "title": "Document in-memory OCR queue persistence limits",
+      "acceptanceCriteria": "Docs mention OCR queue state resets on server restart",
       "passes": true
     }
   ]

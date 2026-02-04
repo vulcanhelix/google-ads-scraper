@@ -15,6 +15,7 @@ interface OcrOptions {
 const EMPTY_LINE_REGEX = /^[\s\W]+$/;
 const SPONSORED_REGEX = /^sponsored$/i;
 const URL_REGEX = /^(https?:\/\/|www\.)/i;
+const HEADLINE_TRIM_REGEX = /^[^a-zA-Z]+/;
 
 function cleanOcrLines(text: string): string[] {
   return text
@@ -64,7 +65,10 @@ export async function runOcr(domain: string, options: OcrOptions): Promise<numbe
       const result = await recognizeImageText(ad.previewUrl);
       const text = result.text.trim();
       const cleanedLines = cleanOcrLines(text);
-      const headline = cleanedLines[0] || null;
+      const headlineCandidate = cleanedLines[0] || null;
+      const headline = headlineCandidate
+        ? headlineCandidate.replace(HEADLINE_TRIM_REGEX, '').trim() || headlineCandidate
+        : null;
       const description = cleanedLines.join('\n') || null;
 
       await updateAdCreativeText(ad.id, {
