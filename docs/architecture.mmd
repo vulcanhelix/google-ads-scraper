@@ -1,0 +1,34 @@
+flowchart LR
+  subgraph Client
+    CLI[CLI: npm run scrape / ocr]
+    API[HTTP API]
+  end
+
+  subgraph App[Google Ads Scraper]
+    Server[Fastify Server]
+    Scraper[Playwright Scraper]
+    OCR[Tesseract OCR]
+    Queue[In-memory OCR Queue]
+    Export[JSON/CSV Export]
+  end
+
+  subgraph Data[Storage]
+    Neon[(NeonDB / Postgres)]
+  end
+
+  subgraph External[External Services]
+    GATC[Google Ads Transparency Center]
+    Render[Render Hosting]
+  end
+
+  CLI --> Scraper
+  API --> Server
+  Server --> Scraper
+  Server --> Queue
+  Queue --> OCR
+  Scraper --> GATC
+  Scraper --> Neon
+  OCR --> Neon
+  Export --> Neon
+  Server --> Neon
+  Render --> Server

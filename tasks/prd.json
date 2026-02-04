@@ -35,6 +35,18 @@
       "title": "Add comprehensive project timeline to docs",
       "acceptanceCriteria": "README and API docs capture a clear, end-to-end timeline of major changes through hardening and review",
       "passes": true
+    },
+    {
+      "id": "7",
+      "title": "Add architecture diagram",
+      "acceptanceCriteria": "Architecture diagram shows CLI/API, scraper, OCR, DB, and external dependencies",
+      "passes": true
+    },
+    {
+      "id": "8",
+      "title": "Add ops runbook",
+      "acceptanceCriteria": "Runbook covers deploy, config, troubleshooting, and common operational tasks",
+      "passes": true
     }
   ]
 }

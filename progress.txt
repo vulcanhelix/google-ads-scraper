@@ -9,3 +9,4 @@ Ensured auth runs before rate limiting hooks.
 Trimmed OCR headline leading non-alphabetic characters.
 Documented OCR queue persistence limitations in API usage guide.
 Added comprehensive timeline and updated README for current architecture.
+Added architecture diagram and ops runbook.

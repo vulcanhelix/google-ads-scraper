@@ -162,6 +162,11 @@ See `API_USAGE.md` for endpoints, auth, OCR, and combined scrape+OCR usage.
 - Improved OCR headline cleanup, rate-limit IP parsing, and auth-first enforcement.
 - Documented API usage, OCR behavior, and operational constraints.
 
+## Architecture
+
+- Diagram: `docs/architecture.mmd`
+- Ops runbook: `docs/ops-runbook.md`
+
 ## License
 
 MIT
