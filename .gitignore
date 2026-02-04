@@ -5,3 +5,4 @@ data/exports/
 .env
 *.log
 .DS_Store
+eng.traineddata
