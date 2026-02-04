@@ -4,6 +4,8 @@ import { advertiserRoutes } from './routes/advertisers';
 import { adsRoutes } from './routes/ads';
 import { scrapeRoutes } from './routes/scrape';
 import { ocrRoutes } from './routes/ocr';
+import { registerRateLimit } from './middleware/rateLimit';
+import { registerAuth } from './middleware/auth';
 import { testDatabaseConnection } from '../database/prisma';
 
 const server: FastifyInstance = Fastify({ 
@@ -19,6 +21,9 @@ async function start() {
   }
 
   await server.register(cors, { origin: true });
+
+  registerRateLimit(server);
+  registerAuth(server);
 
   // Global error handler - ensures all errors return JSON
   server.setErrorHandler((error: FastifyError, request: FastifyRequest, reply: FastifyReply) => {

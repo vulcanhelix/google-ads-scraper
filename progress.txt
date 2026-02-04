@@ -1,3 +1,4 @@
 Added async OCR queue with job status and throttled processing.
 Extended advertiser summary to include last OCR run timestamp.
 Prepared Render deployment checklist for OCR queue and schema changes.
+Added API rate limiting and API key auth for scrape/OCR routes.

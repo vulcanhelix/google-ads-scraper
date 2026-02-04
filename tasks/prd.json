@@ -2,20 +2,14 @@
   "tasks": [
     {
       "id": "1",
-      "title": "Add async OCR queue + throttle to avoid blocking API",
-      "acceptanceCriteria": "OCR API returns immediately with job id; queue runs OCR with concurrency=1; concurrent OCR requests enqueue instead of blocking; limit still capped at 10",
+      "title": "Add API rate limiting for scrape/OCR",
+      "acceptanceCriteria": "Rate limits apply to /api/scrape and /api/ocr with 429 responses; limits configurable; does not block health or read-only endpoints",
       "passes": true
     },
     {
       "id": "2",
-      "title": "Track last OCR run timestamp in advertiser summary",
-      "acceptanceCriteria": "Advertiser summary includes lastOcrRunAt and reflects latest OCR job completion",
-      "passes": true
-    },
-    {
-      "id": "3",
-      "title": "Prepare Render deploy checklist",
-      "acceptanceCriteria": "Provide concrete deploy steps tailored to this repo and current changes",
+      "title": "Add API authentication",
+      "acceptanceCriteria": "Requests require API key header for /api/scrape and /api/ocr; unauthenticated requests get 401; key is configurable",
       "passes": true
     }
   ]
