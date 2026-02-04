@@ -11,6 +11,12 @@
       "title": "Add API authentication",
       "acceptanceCriteria": "Requests require API key header for /api/scrape and /api/ocr; unauthenticated requests get 401; key is configurable",
       "passes": true
+    },
+    {
+      "id": "3",
+      "title": "Add combined scrape + OCR endpoint",
+      "acceptanceCriteria": "Single API call triggers scrape then enqueues OCR job; returns OCR job id; respects max limit caps",
+      "passes": true
     }
   ]
 }
