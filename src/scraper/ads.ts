@@ -203,7 +203,8 @@ async function extractVisibleAds(
     const ads: AdCreative[] = [];
     const seenIds = new Set<string>();
 
-    const creativeLinks = document.querySelectorAll('a[href*="/creative/CR"]');
+    // Use aria-label selector as discovered in browser inspection
+    const creativeLinks = document.querySelectorAll('a[aria-label^="Advertisement"]');
 
     creativeLinks.forEach((link) => {
       try {
@@ -215,19 +216,30 @@ async function extractVisibleAds(
         if (seenIds.has(creativeId)) return;
         seenIds.add(creativeId);
 
-        const card =
-          link.closest('[role="listitem"]') ||
-          link.closest('div[class]') ||
-          link.parentElement?.parentElement;
+        const card = link;
 
+        // Detect format based on browser inspection findings
         let format: AdFormat = 'text';
-        if (card) {
-          if (card.querySelector('video')) format = 'video';
-          else if (card.querySelector('img:not([role="presentation"])'))
-            format = 'image';
+        const videoIcon = card.querySelector('material-icon i');
+        if (videoIcon?.textContent?.includes('videocam')) {
+          format = 'video';
+        } else if (card.querySelector('img')) {
+          format = 'image';
         }
 
-        const text = card?.textContent || '';
+        // Extract preview image URL (key for programmatic context)
+        const previewImg = card.querySelector('img');
+        let previewUrl: string | undefined = undefined;
+        if (previewImg) {
+          const src = previewImg.getAttribute('src');
+          if (src) {
+            // Ensure full URL
+            previewUrl = src.startsWith('//') ? `https:${src}` : src;
+          }
+        }
+
+        // Try to extract dates from card text
+        const text = card.textContent || '';
         const dateMatch = text.match(
           /(\w+\s+\d{1,2},\s+\d{4}|\d{4}-\d{2}-\d{2})/g
         );
@@ -241,6 +253,7 @@ async function extractVisibleAds(
           lastShown: dateMatch?.[1] || dateMatch?.[0] || '',
           totalDaysShown: 0,
           detailsUrl: `https://adstransparency.google.com${href}`,
+          previewUrl: previewUrl, // NEW: Preview image for context
           regionStats: [],
         });
       } catch {
@@ -248,13 +261,25 @@ async function extractVisibleAds(
       }
     });
 
+    // Fallback: try alternative selectors if no ads found
     if (ads.length === 0) {
-      const allLinks = document.querySelectorAll('a[href*="adstransparency"]');
+      const allLinks = document.querySelectorAll('a[href*="/creative/CR"]');
       allLinks.forEach((link) => {
         const href = link.getAttribute('href') || '';
         const match = href.match(/CR\d+/);
         if (match && !seenIds.has(match[0])) {
           seenIds.add(match[0]);
+          
+          // Try to get preview image from fallback
+          const img = link.querySelector('img');
+          let previewUrl: string | undefined = undefined;
+          if (img) {
+            const src = img.getAttribute('src');
+            if (src) {
+              previewUrl = src.startsWith('//') ? `https:${src}` : src;
+            }
+          }
+          
           ads.push({
             id: match[0],
             advertiserId: advId,
@@ -266,6 +291,7 @@ async function extractVisibleAds(
             detailsUrl: href.startsWith('http')
               ? href
               : `https://adstransparency.google.com${href}`,
+            previewUrl: previewUrl,
             regionStats: [],
           });
         }
