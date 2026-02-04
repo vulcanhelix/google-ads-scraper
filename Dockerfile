@@ -27,5 +27,5 @@ RUN npm run build
 EXPOSE 3000
 
 # Start the API server
-# We use the built JS files for production
-CMD ["node", "dist/api/server.js"]
+# Run prisma db push to ensure schema exists, then start the server
+CMD npx prisma db push --accept-data-loss && node dist/api/server.js
