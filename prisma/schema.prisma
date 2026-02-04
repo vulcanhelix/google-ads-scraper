@@ -19,6 +19,7 @@ model Advertiser {
   lastScrapedAt       DateTime? @map("last_scraped_at")
   lastTotalAdsFound   Int?      @map("last_total_ads_found")
   lastScrapeRegion    String?   @map("last_scrape_region")
+  lastOcrRunAt        DateTime? @map("last_ocr_run_at")
   createdAt          DateTime @default(now()) @map("created_at")
   updatedAt          DateTime @updatedAt @map("updated_at")
 

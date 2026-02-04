@@ -7,6 +7,7 @@ export interface Advertiser {
   lastScrapedAt?: string;
   lastTotalAdsFound?: number;
   lastScrapeRegion?: string;
+  lastOcrRunAt?: string;
 }
 
 export type AdFormat = 'text' | 'image' | 'video';

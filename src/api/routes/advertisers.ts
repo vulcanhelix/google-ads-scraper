@@ -23,6 +23,7 @@ export async function advertiserRoutes(fastify: FastifyInstance) {
       lastTotalAdsFound?: number | null;
       lastScrapedAt?: Date | null;
       lastScrapeRegion?: string | null;
+      lastOcrRunAt?: Date | null;
     };
 
     const ads = await getAdsByAdvertiser(id);
@@ -74,6 +75,7 @@ export async function advertiserRoutes(fastify: FastifyInstance) {
         scrapedAt: advertiserData.lastScrapedAt ?? null,
         region: advertiserData.lastScrapeRegion ?? null,
       },
+      lastOcrRunAt: advertiserData.lastOcrRunAt ?? null,
     };
   });
 

@@ -2,6 +2,7 @@ import {
   getAdvertiserByDomain,
   getAdsByAdvertiser,
   updateAdCreativeText,
+  upsertAdvertiser,
 } from '../database/repository';
 import { recognizeImageText } from '../ocr/tesseract';
 import { logger } from '../utils/logger';
@@ -25,7 +26,7 @@ function cleanOcrLines(text: string): string[] {
     .filter((line) => !URL_REGEX.test(line));
 }
 
-export async function runOcr(domain: string, options: OcrOptions): Promise<void> {
+export async function runOcr(domain: string, options: OcrOptions): Promise<number> {
   const limit = options.limit && options.limit > 0 ? options.limit : 10;
 
   logger.info(`Running OCR for domain: ${domain}`);
@@ -40,7 +41,7 @@ export async function runOcr(domain: string, options: OcrOptions): Promise<void>
 
   if (eligibleAds.length === 0) {
     logger.info('No ads with previewUrl found for OCR.');
-    return;
+    return 0;
   }
 
   const targets = eligibleAds
@@ -49,7 +50,7 @@ export async function runOcr(domain: string, options: OcrOptions): Promise<void>
 
   if (targets.length === 0) {
     logger.info('No ads eligible for OCR based on current filters.');
-    return;
+    return 0;
   }
 
   let processed = 0;
@@ -82,5 +83,15 @@ export async function runOcr(domain: string, options: OcrOptions): Promise<void>
     }
   }
 
+  await upsertAdvertiser({
+    id: advertiser.id,
+    name: advertiser.name,
+    verificationStatus: advertiser.verificationStatus,
+    location: advertiser.location || undefined,
+    domain: advertiser.domain || undefined,
+    lastOcrRunAt: new Date().toISOString(),
+  });
+
   logger.info(`OCR completed. Updated ${processed} ads.`);
+  return processed;
 }

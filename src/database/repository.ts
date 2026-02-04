@@ -13,6 +13,7 @@ export async function upsertAdvertiser(advertiser: Advertiser) {
       lastScrapedAt: advertiser.lastScrapedAt ? new Date(advertiser.lastScrapedAt) : undefined,
       lastTotalAdsFound: advertiser.lastTotalAdsFound,
       lastScrapeRegion: advertiser.lastScrapeRegion,
+      lastOcrRunAt: advertiser.lastOcrRunAt ? new Date(advertiser.lastOcrRunAt) : undefined,
     },
     create: {
       id: advertiser.id,
@@ -23,6 +24,7 @@ export async function upsertAdvertiser(advertiser: Advertiser) {
       lastScrapedAt: advertiser.lastScrapedAt ? new Date(advertiser.lastScrapedAt) : undefined,
       lastTotalAdsFound: advertiser.lastTotalAdsFound,
       lastScrapeRegion: advertiser.lastScrapeRegion,
+      lastOcrRunAt: advertiser.lastOcrRunAt ? new Date(advertiser.lastOcrRunAt) : undefined,
     },
   });
 }

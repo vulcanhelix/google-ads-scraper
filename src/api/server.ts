@@ -3,6 +3,7 @@ import cors from '@fastify/cors';
 import { advertiserRoutes } from './routes/advertisers';
 import { adsRoutes } from './routes/ads';
 import { scrapeRoutes } from './routes/scrape';
+import { ocrRoutes } from './routes/ocr';
 import { testDatabaseConnection } from '../database/prisma';
 
 const server: FastifyInstance = Fastify({ 
@@ -62,6 +63,7 @@ async function start() {
   await server.register(advertiserRoutes, { prefix: '/api/advertisers' });
   await server.register(adsRoutes, { prefix: '/api/ads' });
   await server.register(scrapeRoutes, { prefix: '/api/scrape' });
+  await server.register(ocrRoutes, { prefix: '/api/ocr' });
 
   // Enhanced health check with database status
   server.get('/health', async () => {
