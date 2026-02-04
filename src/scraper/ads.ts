@@ -353,7 +353,7 @@ async function extractAdDetails(
     const platforms = await extractPlatforms(page);
     
     // Extract dates
-    const { firstShown, lastShown, totalDaysShown } = await extractDates(page);
+    const { firstShown, lastShown, daysShown } = await extractDates(page);
     
     // Extract region stats
     const regionStats = await extractRegionStats(page);
@@ -370,7 +370,7 @@ async function extractAdDetails(
       platforms: platforms.length > 0 ? platforms : ad.platforms,
       firstShown: firstShown || ad.firstShown,
       lastShown: lastShown || ad.lastShown,
-      totalDaysShown: totalDaysShown || ad.totalDaysShown,
+      totalDaysShown: daysShown || ad.totalDaysShown,
       regionStats: regionStats.length > 0 ? regionStats : ad.regionStats,
       targetDomain: targetDomain || ad.targetDomain,
     };
@@ -382,32 +382,17 @@ async function extractAdDetails(
 
 async function extractHeadline(page: Page): Promise<string | null> {
   try {
-    // Try page title first
+    // Google renders ad content as images, so we can't extract text headlines
+    // Instead, try to get the page title which sometimes contains the ad headline
     const title = await page.title();
-    if (title && !title.toLowerCase().includes('ads transparency')) {
-      const parts = title.split(/\s*[-|–]\s*/);
-      if (parts.length > 0 && parts[0].trim().length > 0) {
-        return parts[0].trim();
-      }
+    if (title && !title.includes('Google Ads Transparency Center') && !title.includes('Creative')) {
+      return title;
     }
 
-    // Try to find headline in the ad preview
-    const headlineSelectors = [
-      'h1',
-      'h2',
-      '[role="heading"]',
-      '.ad-headline',
-      '[data-headline]',
-    ];
-
-    for (const selector of headlineSelectors) {
-      const element = await page.$(selector);
-      if (element) {
-        const text = await element.textContent();
-        if (text && text.trim().length > 0 && text.trim().length < 200) {
-          return text.trim();
-        }
-      }
+    // For text ads, the headline might be in the advertiser title
+    const advertiserTitle = await page.textContent('a.advertiser-title').catch(() => null);
+    if (advertiserTitle) {
+      return advertiserTitle;
     }
   } catch (error) {
     logger.error('Error extracting headline:', error);
@@ -417,22 +402,10 @@ async function extractHeadline(page: Page): Promise<string | null> {
 
 async function extractDescription(page: Page): Promise<string | null> {
   try {
-    const descriptionSelectors = [
-      'p',
-      '.ad-description',
-      '[data-description]',
-      'div[role="article"] p',
-    ];
-
-    for (const selector of descriptionSelectors) {
-      const elements = await page.$$(selector);
-      for (const element of elements) {
-        const text = await element.textContent();
-        if (text && text.trim().length > 20 && text.trim().length < 500) {
-          return text.trim();
-        }
-      }
-    }
+    // Google renders ad descriptions as part of the preview image
+    // We cannot extract text descriptions from images
+    // Return null as this data is not available as text
+    return null;
   } catch (error) {
     logger.error('Error extracting description:', error);
   }
@@ -441,11 +414,25 @@ async function extractDescription(page: Page): Promise<string | null> {
 
 async function extractImageUrl(page: Page): Promise<string | null> {
   try {
+    // Google renders ad previews inside html-renderer or fletch-renderer elements
+    // The actual ad content (including text ads) is rendered as an image
+    const rendererSelectors = ['html-renderer img', 'fletch-renderer img'];
+    
+    for (const selector of rendererSelectors) {
+      const img = await page.$(selector);
+      if (img) {
+        const src = await img.getAttribute('src');
+        if (src) {
+          return src.startsWith('//') ? `https:${src}` : src;
+        }
+      }
+    }
+
+    // Fallback: look for any large image
     const images = await page.$$('img:not([role="presentation"])');
     for (const img of images) {
       const src = await img.getAttribute('src');
       if (src && (src.startsWith('http') || src.startsWith('//'))) {
-        // Skip small icons and logos
         const width = await img.evaluate((el) => (el as HTMLImageElement).naturalWidth);
         const height = await img.evaluate((el) => (el as HTMLImageElement).naturalHeight);
         if (width > 100 && height > 100) {
@@ -485,70 +472,37 @@ async function extractVideoUrl(page: Page): Promise<string | null> {
 
 async function extractPlatforms(page: Page): Promise<AdPlatform[]> {
   try {
-    const pageText = await page.textContent('body');
-    if (!pageText) return ['unknown'];
-
-    const platforms: AdPlatform[] = [];
-    const platformKeywords: Partial<Record<AdPlatform, string[]>> = {
-      'google_search': ['google search', 'search network'],
-      'youtube': ['youtube'],
-      'display_network': ['display network', 'gdn'],
-      'google_maps': ['google maps', 'maps'],
-      'google_play': ['google play', 'play store'],
-      'google_shopping': ['google shopping', 'shopping'],
-    };
-
-    for (const [platform, keywords] of Object.entries(platformKeywords)) {
-      if (keywords) {
-        for (const keyword of keywords) {
-          if (pageText.toLowerCase().includes(keyword)) {
-            platforms.push(platform as AdPlatform);
-            break;
-          }
-        }
-      }
-    }
-
-    return platforms.length > 0 ? platforms : ['unknown'];
+    // Platform information is not consistently shown on Google Ads detail pages
+    // Return 'unknown' as this data is often not available
+    return ['unknown'];
   } catch (error) {
     logger.error('Error extracting platforms:', error);
     return ['unknown'];
   }
 }
 
-async function extractDates(page: Page): Promise<{
-  firstShown: string;
-  lastShown: string;
-  totalDaysShown: number;
-}> {
+async function extractDates(page: Page): Promise<{ firstShown: string; lastShown: string; daysShown: number }> {
   try {
-    const pageText = await page.textContent('body');
-    if (!pageText) return { firstShown: '', lastShown: '', totalDaysShown: 0 };
+    const dateInfo = { firstShown: '', lastShown: '', daysShown: 0 };
 
-    // Look for date patterns
-    const datePattern = /(\w+\s+\d{1,2},\s+\d{4})/g;
-    const dates = pageText.match(datePattern);
-
-    if (dates && dates.length >= 2) {
-      const firstShown = dates[0];
-      const lastShown = dates[dates.length - 1];
-      
-      // Calculate days shown
-      const first = new Date(firstShown);
-      const last = new Date(lastShown);
-      const diffTime = Math.abs(last.getTime() - first.getTime());
-      const totalDaysShown = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-      return { firstShown, lastShown, totalDaysShown };
+    // Extract "Last shown" from .property.last-shown
+    const lastShownText = await page.textContent('.property.last-shown').catch(() => null);
+    if (lastShownText) {
+      // Remove the "Last shown" label and get just the date
+      const dateMatch = lastShownText.replace(/Last shown/i, '').trim();
+      if (dateMatch) {
+        dateInfo.lastShown = dateMatch;
+      }
     }
 
-    if (dates && dates.length === 1) {
-      return { firstShown: dates[0], lastShown: dates[0], totalDaysShown: 0 };
-    }
+    // Google Ads Transparency Center often doesn't show "First shown" date
+    // It's not consistently available, so we leave it empty
+
+    return dateInfo;
   } catch (error) {
     logger.error('Error extracting dates:', error);
   }
-  return { firstShown: '', lastShown: '', totalDaysShown: 0 };
+  return { firstShown: '', lastShown: '', daysShown: 0 };
 }
 
 async function extractRegionStats(page: Page): Promise<any[]> {
