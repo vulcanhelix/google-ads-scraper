@@ -4,6 +4,8 @@ import { scrapeAdvertiserAds } from '../scraper/ads';
 import {
   upsertAdvertiser,
   upsertAdCreatives,
+  getAdvertiserByDomain,
+  getAdsByAdvertiser,
   startScrapeSession,
   completeScrapeSession,
 } from '../database/repository';
@@ -22,15 +24,84 @@ interface ScrapeOptions {
 }
 
 export async function scrape(domain: string, options: ScrapeOptions): Promise<void> {
-  if (!options.max || options.max > 10) {
-    options.max = 10;
-    logger.info('Max results capped at 10');
+  // Short cache to avoid re-scraping on accidental double-clicks (1 hour)
+  const cacheWindowMs = 1 * 60 * 60 * 1000;
+  const now = Date.now();
+
+  // Default to 20, allow up to 100
+  if (!options.max) {
+    options.max = 20;
+  } else if (options.max > 100) {
+    options.max = 100;
+    logger.info('Max results capped at 100');
   }
 
   logger.info(`Starting scrape for domain: ${domain}`);
   logger.info(`Options: ${JSON.stringify(options)}`);
 
+  const cachedAdvertiser = await getAdvertiserByDomain(domain);
+  if (cachedAdvertiser?.lastScrapedAt) {
+    const lastScrapedAt = cachedAdvertiser.lastScrapedAt.getTime();
+    const isFresh = now - lastScrapedAt < cacheWindowMs;
+    if (isFresh) {
+      const cachedAds = await getAdsByAdvertiser(cachedAdvertiser.id);
+      if (cachedAds.length > 0) {
+        logger.info(
+          `Using cached ads from ${cachedAdvertiser.lastScrapedAt.toISOString()} (within 21 days)`
+        );
 
+        const mappedAds = cachedAds.map((ad) => ({
+          id: ad.id,
+          advertiserId: ad.advertiserId,
+          format: ad.format as AdFormat,
+          platforms: ad.platforms as AdPlatform[],
+          targetDomain: ad.targetDomain || undefined,
+          firstShown: ad.firstShown || '',
+          lastShown: ad.lastShown || '',
+          totalDaysShown: ad.totalDaysShown || 0,
+          detailsUrl: ad.detailsUrl,
+          previewUrl: ad.previewUrl || undefined,
+          regionStats: (ad.regionStats as any) || [],
+          headline: ad.headline || undefined,
+          description: ad.description || undefined,
+          headlineConfidence: ad.headlineConfidence || undefined,
+          descriptionConfidence: ad.descriptionConfidence || undefined,
+          imageUrl: ad.imageUrl || undefined,
+          videoUrl: ad.videoUrl || undefined,
+        }));
+
+        const exportData: ScrapeResult = {
+          success: true,
+          advertiser: {
+            id: cachedAdvertiser.id,
+            name: cachedAdvertiser.name,
+            verificationStatus: cachedAdvertiser.verificationStatus,
+            location: cachedAdvertiser.location || undefined,
+            domain: cachedAdvertiser.domain || undefined,
+            lastScrapedAt: cachedAdvertiser.lastScrapedAt.toISOString(),
+            lastTotalAdsFound: cachedAdvertiser.lastTotalAdsFound || undefined,
+            lastScrapeRegion: cachedAdvertiser.lastScrapeRegion || undefined,
+            lastOcrRunAt: cachedAdvertiser.lastOcrRunAt
+              ? cachedAdvertiser.lastOcrRunAt.toISOString()
+              : undefined,
+          },
+          ads: mappedAds,
+          totalAdsFound: mappedAds.length,
+          scrapedAt: cachedAdvertiser.lastScrapedAt.toISOString(),
+        };
+
+        if (options.output === 'json' || options.output === 'both') {
+          await exportToJson(exportData, options.outputDir, domain);
+        }
+
+        if (options.output === 'csv' || options.output === 'both') {
+          await exportToCsv(exportData, options.outputDir, domain);
+        }
+
+        return;
+      }
+    }
+  }
 
   const browser = await createBrowser({ headless: options.headless });
   const context = await createContext(browser, { headless: options.headless });
@@ -62,7 +133,7 @@ export async function scrape(domain: string, options: ScrapeOptions): Promise<vo
       });
     }
 
-    upsertAdvertiser(advertiser);
+    await upsertAdvertiser(advertiser);
 
     sessionId = await startScrapeSession(advertiser.id);
 
@@ -88,7 +159,7 @@ export async function scrape(domain: string, options: ScrapeOptions): Promise<vo
     }
 
     logger.info('Step 3: Saving to database...');
-    upsertAdCreatives(scrapeResult.ads);
+    await upsertAdCreatives(scrapeResult.ads);
     await upsertAdvertiser({
       ...advertiser,
       lastScrapedAt: new Date().toISOString(),

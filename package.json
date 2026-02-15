@@ -16,7 +16,12 @@
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",
-    "db:studio": "prisma studio"
+    "db:studio": "prisma studio",
+    "client": "cd client && npm run dev",
+    "client:build": "cd client && npm run build",
+    "client:install": "cd client && npm install",
+    "dev:all": "concurrently \"npm run api:dev\" \"npm run client\"",
+    "build:all": "npm run client:build && npm run build"
   },
   "keywords": [
     "google-ads",
@@ -28,8 +33,10 @@
   "license": "MIT",
   "dependencies": {
     "@fastify/cors": "^11.2.0",
+    "@fastify/static": "^9.0.0",
     "@prisma/client": "^5.8.0",
     "commander": "^11.1.0",
+    "concurrently": "^8.2.2",
     "dotenv": "^17.2.3",
     "fastify": "^5.7.4",
     "playwright": "^1.40.1",

@@ -1,5 +1,7 @@
 import Fastify, { FastifyInstance, FastifyError, FastifyRequest, FastifyReply } from 'fastify';
 import cors from '@fastify/cors';
+import fastifyStatic from '@fastify/static';
+import path from 'path';
 import { advertiserRoutes } from './routes/advertisers';
 import { adsRoutes } from './routes/ads';
 import { scrapeRoutes } from './routes/scrape';
@@ -21,6 +23,12 @@ async function start() {
   }
 
   await server.register(cors, { origin: true });
+
+  // Register static file serving for the frontend
+  await server.register(fastifyStatic, {
+    root: path.join(__dirname, '../../client/dist'),
+    prefix: '/',
+  });
 
   registerAuth(server);
   registerRateLimit(server);
@@ -78,6 +86,15 @@ async function start() {
       database: dbStatus.connected ? 'connected' : 'disconnected',
       ...(dbStatus.error && { databaseError: dbStatus.error }),
     };
+  });
+
+  // SPA fallback - return index.html for non-API routes
+  server.setNotFoundHandler((request: FastifyRequest, reply: FastifyReply) => {
+    if (request.url.startsWith('/api')) {
+      reply.code(404).send({ error: 'API endpoint not found' });
+    } else {
+      reply.sendFile('index.html');
+    }
   });
 
   const port = parseInt(process.env.PORT || '3000', 10);

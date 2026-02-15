@@ -1,8 +1,9 @@
-import { Page } from 'playwright';
-import { AdCreative, AdFormat, AdPlatform, ScrapeFilters } from '../types';
+import { Page, BrowserContext } from 'playwright';
+import { AdCreative, AdFormat, ScrapeFilters } from '../types';
 import { delay } from '../utils/delay';
 import { logger } from '../utils/logger';
 import { URLS } from '../config';
+import { ApiInterceptor, InterceptedCreative, timestampToIso } from './api-interceptor';
 
 export interface AdScrapeResult {
   success: boolean;
@@ -16,18 +17,22 @@ export async function scrapeAdvertiserAds(
   advertiserId: string,
   filters?: ScrapeFilters
 ): Promise<AdScrapeResult> {
-    const ads: AdCreative[] = [];
-    const errors: string[] = [];
+  const errors: string[] = [];
 
   try {
     logger.info(`Scraping ads for advertiser: ${advertiserId}`);
 
+    // Set up API interceptor BEFORE navigating
+    const interceptor = new ApiInterceptor();
+    interceptor.attach(page);
+
     let url = `${URLS.ADVERTISER}${advertiserId}`;
     const params = new URLSearchParams();
 
-    if (filters?.region) {
-      params.set('region', filters.region);
-    }
+    // Default to 'anywhere' so the API returns all ads globally
+    // Without this, API only returns ads shown in user's auto-detected region
+    params.set('region', filters?.region || 'anywhere');
+
     if (filters?.platform) {
       params.set('platform', filters.platform);
     }
@@ -35,113 +40,108 @@ export async function scrapeAdvertiserAds(
       params.set('format', filters.format);
     }
 
-    if (params.toString()) {
-      url += `?${params.toString()}`;
-    }
+    url += `?${params.toString()}`;
 
-    await page.goto(url, {
-      waitUntil: 'domcontentloaded',
-      timeout: 30000,
-    });
-    
-    // Wait for page to stabilize
+    // Wait for the initial SearchCreatives API response alongside page load
+    const [_response] = await Promise.all([
+      page.waitForResponse(
+        (r) => r.url().includes('SearchService/SearchCreatives'),
+        { timeout: 30000 }
+      ).catch(() => null),
+      page.goto(url, {
+        waitUntil: 'domcontentloaded',
+        timeout: 30000,
+      }),
+    ]);
+
+    // Give the interceptor time to process the response body
     await delay(3000);
     await page.waitForLoadState('networkidle').catch(() => {});
+    await delay(1000);
 
-    await waitForAdsToLoad(page);
-    await waitForPreviewImages(page);
+    logger.info(`After initial load: interceptor has ${interceptor.size} creatives`);
 
     const totalCount = await extractTotalAdCount(page);
-    logger.info(`Total ads reported: ${totalCount || 'unknown'}`);
+    logger.info(`Total ads reported by page: ${totalCount || 'unknown'}`);
+    logger.info(`API interceptor captured: ${interceptor.size} creatives`);
 
-    let previousAdCount = 0;
-    let noNewAdsCount = 0;
-    const maxNoNewAds = 8;
+    // Scroll to trigger lazy-loaded API responses
+    let previousInterceptedCount = interceptor.size;
+    let noNewCount = 0;
+    const maxNoNew = 5;
     let scrollAttempts = 0;
-    const maxScrollAttempts = 150;
+    const maxScrollAttempts = 100;
 
     while (scrollAttempts < maxScrollAttempts) {
       scrollAttempts++;
 
-      const currentAds = await extractVisibleAds(page, advertiserId);
-
-      for (const ad of currentAds) {
-        if (!ads.find((a) => a.id === ad.id)) {
-          ads.push(ad);
-        }
-      }
-
-      if (ads.length !== previousAdCount) {
-        logger.info(`Collected ${ads.length} unique ads so far`);
-      }
-
-      if (filters?.maxResults && ads.length >= filters.maxResults) {
+      if (filters?.maxResults && interceptor.size >= filters.maxResults) {
         logger.info(`Reached max results limit: ${filters.maxResults}`);
         break;
       }
 
-      if (ads.length === previousAdCount) {
-        noNewAdsCount++;
-        if (noNewAdsCount >= maxNoNewAds) {
-          logger.info('No new ads found after scrolling. Finishing.');
+      // Scroll down
+      await page.evaluate(() => window.scrollBy(0, 800));
+      await delay(1500);
+
+      if (interceptor.size > previousInterceptedCount) {
+        logger.info(`API interceptor: ${interceptor.size} creatives captured`);
+        noNewCount = 0;
+        previousInterceptedCount = interceptor.size;
+      } else {
+        noNewCount++;
+        if (noNewCount >= maxNoNew) {
+          logger.info('No new API responses after scrolling. Finishing.');
           break;
         }
-      } else {
-        noNewAdsCount = 0;
-        previousAdCount = ads.length;
       }
 
-      // Scroll down incrementally
-      await page.evaluate(() => {
-        window.scrollBy(0, 800);
+      // Check if at bottom
+      const atBottom = await page.evaluate(() => {
+        return window.scrollY + window.innerHeight >= document.body.scrollHeight - 100;
       });
-      await delay(1000);
 
-      // Check if we can scroll more
-      const scrollInfo = await page.evaluate(() => ({
-        scrollTop: window.scrollY,
-        scrollHeight: document.body.scrollHeight,
-        clientHeight: window.innerHeight,
-      }));
-
-      const atBottom = scrollInfo.scrollTop + scrollInfo.clientHeight >= scrollInfo.scrollHeight - 100;
-      
       if (atBottom) {
-        // Wait for potential lazy loading
         await delay(2000);
-        
-        // Check again after wait
-        const newScrollHeight = await page.evaluate(() => document.body.scrollHeight);
-        if (newScrollHeight === scrollInfo.scrollHeight) {
-          // Try one more scroll to trigger loading
-          await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-          await delay(2000);
-          
-          const finalHeight = await page.evaluate(() => document.body.scrollHeight);
-          if (finalHeight === scrollInfo.scrollHeight) {
-            logger.info('Reached end of ads list');
-            break;
-          }
+        const grew = await page.evaluate(() => {
+          const h = document.body.scrollHeight;
+          window.scrollTo(0, h);
+          return h;
+        });
+        await delay(2000);
+        const newH = await page.evaluate(() => document.body.scrollHeight);
+        if (newH <= grew) {
+          logger.info('Reached end of ads list');
+          break;
         }
       }
     }
 
-    const previewCount = ads.filter((ad) => Boolean(ad.previewUrl)).length;
-    logger.info(`Collected ${ads.length} ads from list page`);
-    logger.info(`Preview URLs found: ${previewCount}/${ads.length}`);
+    // Convert intercepted creatives to AdCreative[]
+    const interceptedCreatives = interceptor.getCreatives();
+    logger.info(`Total unique creatives from API: ${interceptedCreatives.length}`);
+
+    // For text/search ads, try to extract headline/description from their preview URLs
+    const context = page.context();
+    const ads = await convertInterceptedAds(interceptedCreatives, advertiserId, context);
+
+    const textAdCount = ads.filter((a) => a.headline).length;
+    logger.info(`Ads with extracted headline: ${textAdCount}/${ads.length}`);
+
+    const finalAds = filters?.maxResults ? ads.slice(0, filters.maxResults) : ads;
 
     return {
       success: true,
-      ads: filters?.maxResults ? ads.slice(0, filters.maxResults) : ads,
-      totalFound: totalCount || ads.length,
+      ads: finalAds,
+      totalFound: totalCount || finalAds.length,
       errors,
     };
   } catch (error) {
     logger.error('Ad scraping failed:', error);
     return {
       success: false,
-      ads,
-      totalFound: ads.length,
+      ads: [],
+      totalFound: 0,
       errors: [
         ...errors,
         error instanceof Error ? error.message : 'Unknown error',
@@ -150,46 +150,274 @@ export async function scrapeAdvertiserAds(
   }
 }
 
-async function waitForAdsToLoad(page: Page): Promise<void> {
-  const adContainerSelectors = [
-    '[data-creative-id]',
-    'creative-card',
-    '[role="listitem"]',
-    '.ad-card',
-    '[data-ad-id]',
-    'a[href*="/creative/CR"]',
-  ];
+/**
+ * Convert intercepted API creatives to the AdCreative type used by the rest of the app.
+ * For text/search ads, loads the preview URL in a new page to extract rendered headline/description.
+ */
+async function convertInterceptedAds(
+  creatives: InterceptedCreative[],
+  advertiserId: string,
+  context: BrowserContext
+): Promise<AdCreative[]> {
+  const ads: AdCreative[] = [];
 
-  for (const selector of adContainerSelectors) {
-    try {
-      await page.waitForSelector(selector, { timeout: 5000 });
-      logger.debug(`Found ads using selector: ${selector}`);
-      return;
-    } catch {
-      continue;
-    }
+  // Separate text ads from image ads
+  const textAds = creatives.filter((c) => c.textPreviewUrl);
+  const imageAds = creatives.filter((c) => !c.textPreviewUrl);
+
+  // Extract text from text/search ad previews (batch in a single page)
+  const textResults = await extractTextAdContent(textAds, context);
+
+  for (const creative of creatives) {
+    const format = mapFormatType(creative.formatType);
+    const textResult = textResults.get(creative.creativeId);
+
+    const ad: AdCreative = {
+      id: creative.creativeId,
+      advertiserId,
+      format,
+      platforms: ['unknown'],
+      firstShown: timestampToIso(creative.firstShownTimestamp),
+      lastShown: timestampToIso(creative.lastShownTimestamp),
+      totalDaysShown: creative.totalDaysShown,
+      detailsUrl: `https://adstransparency.google.com/advertiser/${advertiserId}/creative/${creative.creativeId}?region=anywhere`,
+      previewUrl: creative.imageUrl,
+      imageUrl: creative.imageUrl,
+      regionStats: [],
+      headline: textResult?.headline,
+      description: textResult?.description,
+    };
+
+    ads.push(ad);
   }
 
-  await page.waitForLoadState('networkidle');
-  await delay(3000);
+  logger.info(`Converted ${ads.length} ads (${textAds.length} text, ${imageAds.length} image)`);
+  return ads;
 }
 
-async function waitForPreviewImages(page: Page): Promise<void> {
+/**
+ * Load text/search ad preview URLs and extract rendered headline/description.
+ * Processes up to 5 ads at a time for efficiency.
+ */
+async function extractTextAdContent(
+  textAds: InterceptedCreative[],
+  context: BrowserContext
+): Promise<Map<string, { headline: string; description: string }>> {
+  const results = new Map<string, { headline: string; description: string }>();
+  if (textAds.length === 0) return results;
+
+  logger.info(`Extracting text from ${textAds.length} text/search ad previews...`);
+
+  // Process in batches of 5
+  const batchSize = 5;
+  for (let i = 0; i < textAds.length; i += batchSize) {
+    const batch = textAds.slice(i, i + batchSize);
+    const promises = batch.map(async (creative) => {
+      try {
+        const result = await loadAndExtractAdText(creative, context);
+        if (result) {
+          results.set(creative.creativeId, result);
+        }
+      } catch (err) {
+        logger.debug(`Failed to extract text for ${creative.creativeId}: ${err}`);
+      }
+    });
+    await Promise.all(promises);
+  }
+
+  logger.info(`Extracted text from ${results.size}/${textAds.length} text ads`);
+  return results;
+}
+
+/**
+ * Load a single text ad preview URL and extract headline/description from the rendered content.
+ */
+async function loadAndExtractAdText(
+  creative: InterceptedCreative,
+  context: BrowserContext
+): Promise<{ headline: string; description: string } | null> {
+  if (!creative.textPreviewUrl) return null;
+
+  const page = await context.newPage();
   try {
-    await page.waitForFunction(
-      () => {
-        const images = document.querySelectorAll('a[aria-label^="Advertisement"] img');
-        return Array.from(images).some((img) => {
-          const src = img.getAttribute('src');
-          const dataSrc = img.getAttribute('data-src') || img.getAttribute('data-lazy-src');
-          const srcset = img.getAttribute('srcset');
-          return Boolean(src || dataSrc || srcset);
+    // Check if it's a JS-based preview (standard for text ads now)
+    const urlObj = new URL(creative.textPreviewUrl);
+    const htmlParentId = urlObj.searchParams.get('htmlParentId');
+    const responseCallback = urlObj.searchParams.get('responseCallback');
+
+    if (htmlParentId && responseCallback) {
+      // It is a JS preview. We must render it inside a wrapper HTML page.
+      // We use request interception to serve this wrapper on a "valid" URL
+      // to avoid 'Access is denied' errors with document.cookie on about:blank.
+      const dummyUrl = 'http://dummy-render.local/ad';
+      
+      await page.route(dummyUrl, async (route) => {
+        const htmlWrapper = `
+          <!DOCTYPE html>
+          <html>
+          <head><meta charset="utf-8"></head>
+          <body>
+            <div id="${htmlParentId}"></div>
+            <script>
+              // Shim document.cookie to prevent access violation errors
+              try {
+                Object.defineProperty(document, 'cookie', {
+                  get: () => '',
+                  set: () => {}
+                });
+              } catch(e) {}
+
+              // Define the callback that Google's script will call
+              window['${responseCallback}'] = function(data) {
+                const container = document.getElementById('${htmlParentId}');
+                if (!container) return;
+
+                // Data can be a string of HTML or an object with a 'content' property
+                let htmlContent = '';
+                if (typeof data === 'string') {
+                  htmlContent = data;
+                } else if (data && data.content) {
+                  htmlContent = data.content;
+                }
+
+                if (htmlContent) {
+                  container.innerHTML = htmlContent;
+                  // Add a marker for Playwright to wait for
+                  document.body.classList.add('ad-rendered');
+                }
+              };
+            </script>
+            <script src="${creative.textPreviewUrl}"></script>
+          </body>
+          </html>
+        `;
+        
+        await route.fulfill({
+          status: 200,
+          contentType: 'text/html',
+          body: htmlWrapper
         });
-      },
-      { timeout: 8000 }
-    );
+      });
+
+      // Navigate to the dummy URL which returns our wrapper
+      await page.goto(dummyUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
+      
+      // Wait for the callback to fire and render content
+      try {
+        await page.waitForSelector('.ad-rendered', { timeout: 5000 });
+      } catch (e) {
+        // Callback didn't fire or failed, wait a bit just in case
+        await delay(2000);
+      }
+    } else {
+      // Fallback for standard HTML URLs (if any)
+      await page.goto(creative.textPreviewUrl, {
+        waitUntil: 'domcontentloaded',
+        timeout: 15000,
+      });
+    }
+
+    await delay(1000);
+
+    // Extract all visible text from the rendered ad
+    const textContent = await page.evaluate(() => {
+      // Remove script/style elements
+      const scripts = document.querySelectorAll('script, style, noscript');
+      scripts.forEach((s) => s.remove());
+
+      // Get all text nodes
+      const body = document.body;
+      if (!body) return { allText: '', elements: [] as Array<{ tag: string; text: string; fontSize: string }> };
+
+      const elements: Array<{ tag: string; text: string; fontSize: string }> = [];
+      const walker = document.createTreeWalker(body, NodeFilter.SHOW_ELEMENT);
+      
+      let node: Node | null = walker.currentNode;
+      while (node) {
+        const el = node as HTMLElement;
+        const text = el.textContent?.trim() || '';
+        if (text && el.children.length === 0 && text.length > 1) {
+          const style = window.getComputedStyle(el);
+          elements.push({
+            tag: el.tagName.toLowerCase(),
+            text: text,
+            fontSize: style.fontSize,
+          });
+        }
+        node = walker.nextNode();
+      }
+
+      return {
+        allText: body.innerText?.trim() || '',
+        elements,
+      };
+    });
+
+    if (!textContent.elements.length && !textContent.allText) return null;
+
+    // Parse headline and description from extracted elements
+    // Typically: largest font = headline, rest = description
+    // Filter out "Sponsored", URLs, and very short text
+    const meaningful = textContent.elements.filter((el) => {
+      const text = el.text;
+      if (text.length <= 2) return false;
+      if (/^(sponsored|ad|ads)$/i.test(text)) return false;
+      if (/^(https?:\/\/|www\.)/i.test(text)) return false;
+      return true;
+    });
+
+    if (meaningful.length === 0) {
+      // Fall back to full text
+      const lines = textContent.allText
+        .split('\n')
+        .map((l) => l.trim())
+        .filter((l) => l.length > 2)
+        .filter((l) => !/^(sponsored|ad|ads)$/i.test(l))
+        .filter((l) => !/^(https?:\/\/|www\.)/i.test(l));
+
+      if (lines.length === 0) return null;
+      return {
+        headline: lines[0],
+        description: lines.slice(1).join(' '),
+      };
+    }
+
+    // Sort by font size descending to find headline
+    const sorted = meaningful.sort((a, b) => {
+      const sizeA = parseFloat(a.fontSize) || 0;
+      const sizeB = parseFloat(b.fontSize) || 0;
+      return sizeB - sizeA;
+    });
+
+    const headline = sorted[0]?.text || '';
+    const descParts = sorted.slice(1).map((el) => el.text);
+    // Deduplicate (sometimes headline text appears in description too)
+    const description = descParts
+      .filter((t) => t !== headline)
+      .join(' ')
+      .trim();
+
+    return {
+      headline,
+      description,
+    };
   } catch {
-    await delay(1500);
+    return null;
+  } finally {
+    await page.close().catch(() => {});
+  }
+}
+
+function mapFormatType(formatType: number): AdFormat {
+  switch (formatType) {
+    case 1:
+      return 'image';
+    case 2:
+      return 'image'; // display ads are image-based
+    case 3:
+      return 'text';
+    default:
+      return 'image';
   }
 }
 
@@ -215,139 +443,4 @@ async function extractTotalAdCount(page: Page): Promise<number | null> {
   }
 
   return null;
-}
-
-async function extractVisibleAds(
-  page: Page,
-  advertiserId: string
-): Promise<AdCreative[]> {
-  return await page.evaluate((advId) => {
-    const ads: AdCreative[] = [];
-    const seenIds = new Set<string>();
-
-    const normalizeUrl = (value: string | null): string | undefined => {
-      if (!value) return undefined;
-      if (value.startsWith('//')) return `https:${value}`;
-      return value;
-    };
-
-    const pickFromSrcset = (srcset: string | null): string | undefined => {
-      if (!srcset) return undefined;
-      const candidates = srcset
-        .split(',')
-        .map((entry) => entry.trim().split(' ')[0])
-        .filter(Boolean);
-      return normalizeUrl(candidates[0] || null);
-    };
-
-    const getImageUrl = (img: Element | null): string | undefined => {
-      if (!img) return undefined;
-      const src = img.getAttribute('src');
-      const dataSrc = img.getAttribute('data-src') || img.getAttribute('data-lazy-src');
-      const srcset = img.getAttribute('srcset');
-      return normalizeUrl(src) || normalizeUrl(dataSrc) || pickFromSrcset(srcset);
-    };
-
-    // Use aria-label selector as discovered in browser inspection
-    const creativeLinks = document.querySelectorAll('a[aria-label^="Advertisement"]');
-
-    creativeLinks.forEach((link) => {
-      try {
-        const href = link.getAttribute('href') || '';
-        const creativeMatch = href.match(/CR\d+/);
-        if (!creativeMatch) return;
-
-        const creativeId = creativeMatch[0];
-        if (seenIds.has(creativeId)) return;
-        seenIds.add(creativeId);
-
-        const card = link;
-
-        // Detect format based on browser inspection findings
-        let format: AdFormat = 'text';
-        const videoIcon = card.querySelector('material-icon i');
-        if (videoIcon?.textContent?.includes('videocam')) {
-          format = 'video';
-        } else if (card.querySelector('img')) {
-          format = 'image';
-        }
-
-        // Extract preview image URL (key for programmatic context)
-        const previewImg = card.querySelector('img');
-        const previewUrl = getImageUrl(previewImg);
-
-        // Try to extract dates from card text
-        const text = card.textContent || '';
-        const dateMatch = text.match(
-          /(\w+\s+\d{1,2},\s+\d{4}|\d{4}-\d{2}-\d{2})/g
-        );
-
-        ads.push({
-          id: creativeId,
-          advertiserId: advId,
-          format: format,
-          platforms: ['unknown'],
-          firstShown: dateMatch?.[0] || '',
-          lastShown: dateMatch?.[1] || dateMatch?.[0] || '',
-          totalDaysShown: 0,
-          detailsUrl: `https://adstransparency.google.com${href}`,
-          previewUrl: previewUrl, // NEW: Preview image for context
-          regionStats: [],
-        });
-      } catch {
-        // Skip malformed elements
-      }
-    });
-
-    // Fallback: try alternative selectors if no ads found
-    if (ads.length === 0) {
-      const allLinks = document.querySelectorAll('a[href*="/creative/CR"]');
-      allLinks.forEach((link) => {
-        const href = link.getAttribute('href') || '';
-        const match = href.match(/CR\d+/);
-        if (match && !seenIds.has(match[0])) {
-          seenIds.add(match[0]);
-          
-          // Try to get preview image from fallback
-          const img = link.querySelector('img');
-          const previewUrl = getImageUrl(img);
-          
-          ads.push({
-            id: match[0],
-            advertiserId: advId,
-            format: 'text',
-            platforms: ['unknown'],
-            firstShown: '',
-            lastShown: '',
-            totalDaysShown: 0,
-            detailsUrl: href.startsWith('http')
-              ? href
-              : `https://adstransparency.google.com${href}`,
-            previewUrl: previewUrl,
-            regionStats: [],
-          });
-        }
-      });
-    }
-
-    return ads;
-  }, advertiserId) as AdCreative[];
-}
-
-async function scrollForMore(page: Page): Promise<boolean> {
-  const previousScrollHeight = await page.evaluate(
-    () => document.body.scrollHeight
-  );
-
-  await page.evaluate(() => {
-    window.scrollTo(0, document.body.scrollHeight);
-  });
-
-  await delay(1000);
-
-  const newScrollHeight = await page.evaluate(
-    () => document.body.scrollHeight
-  );
-
-  return newScrollHeight > previousScrollHeight;
 }

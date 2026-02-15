@@ -12,10 +12,18 @@ interface OcrOptions {
   force?: boolean;
 }
 
+export interface OcrAdResult {
+  adId: string;
+  headline: string | null;
+  description: string | null;
+}
+
 const EMPTY_LINE_REGEX = /^[\s\W]+$/;
 const SPONSORED_REGEX = /^sponsored$/i;
 const URL_REGEX = /^(https?:\/\/|www\.)/i;
 const HEADLINE_TRIM_REGEX = /^[^a-zA-Z]+/;
+// Common OCR artifacts from logo icons (e.g. "Cc ", "s+ ", "«= ", "4» ", "#, ", "® ")
+const LOGO_ARTIFACT_REGEX = /^(?:[A-Za-z]{1,2}[\s.,;:]+|[®©™«»#]+[\s.,;:]*|[^a-zA-Z0-9]{1,3}\s+)/;
 
 function cleanOcrLines(text: string): string[] {
   return text
@@ -27,7 +35,21 @@ function cleanOcrLines(text: string): string[] {
     .filter((line) => !URL_REGEX.test(line));
 }
 
-export async function runOcr(domain: string, options: OcrOptions): Promise<number> {
+function cleanHeadline(text: string): string {
+  // Remove common OCR artifacts from logo icons at the start
+  let cleaned = text.replace(LOGO_ARTIFACT_REGEX, '').trim();
+  // Also strip leading non-alpha characters
+  cleaned = cleaned.replace(HEADLINE_TRIM_REGEX, '').trim();
+  return cleaned || text;
+}
+
+export interface OcrRunResult {
+  processed: number;
+  total: number;
+  results: OcrAdResult[];
+}
+
+export async function runOcr(domain: string, options: OcrOptions): Promise<OcrRunResult> {
   const limit = options.limit && options.limit > 0 ? options.limit : 10;
 
   logger.info(`Running OCR for domain: ${domain}`);
@@ -38,11 +60,12 @@ export async function runOcr(domain: string, options: OcrOptions): Promise<numbe
   }
 
   const ads = await getAdsByAdvertiser(advertiser.id);
-  const eligibleAds = ads.filter((ad) => ad.previewUrl);
+  // Prefer full-res imageUrl from API interceptor, fall back to previewUrl
+  const eligibleAds = ads.filter((ad) => ad.imageUrl || ad.previewUrl);
 
   if (eligibleAds.length === 0) {
-    logger.info('No ads with previewUrl found for OCR.');
-    return 0;
+    logger.info('No ads with image URLs found for OCR.');
+    return { processed: 0, total: 0, results: [] };
   }
 
   const targets = eligibleAds
@@ -51,25 +74,28 @@ export async function runOcr(domain: string, options: OcrOptions): Promise<numbe
 
   if (targets.length === 0) {
     logger.info('No ads eligible for OCR based on current filters.');
-    return 0;
+    return { processed: 0, total: eligibleAds.length, results: [] };
   }
 
   let processed = 0;
+  const results: OcrAdResult[] = [];
 
   for (const ad of targets) {
-    if (!ad.previewUrl) {
+    // Use full-res imageUrl from API when available, otherwise previewUrl
+    const ocrImageUrl = ad.imageUrl || ad.previewUrl;
+    if (!ocrImageUrl) {
       continue;
     }
 
     try {
-      const result = await recognizeImageText(ad.previewUrl);
+      const result = await recognizeImageText(ocrImageUrl);
       const text = result.text.trim();
       const cleanedLines = cleanOcrLines(text);
       const headlineCandidate = cleanedLines[0] || null;
-      const headline = headlineCandidate
-        ? headlineCandidate.replace(HEADLINE_TRIM_REGEX, '').trim() || headlineCandidate
-        : null;
-      const description = cleanedLines.join('\n') || null;
+      const headline = headlineCandidate ? cleanHeadline(headlineCandidate) : null;
+      // Skip the first line (headline) from description to avoid duplication
+      const descriptionLines = cleanedLines.slice(1);
+      const description = descriptionLines.length > 0 ? descriptionLines.join('\n') : null;
 
       await updateAdCreativeText(ad.id, {
         headline,
@@ -78,8 +104,9 @@ export async function runOcr(domain: string, options: OcrOptions): Promise<numbe
         descriptionConfidence: description ? result.confidence : null,
       });
 
+      results.push({ adId: ad.id, headline, description });
       processed += 1;
-      logger.info(`OCR updated ad ${ad.id}`);
+      logger.info(`OCR updated ad ${ad.id}: "${headline}"`);
     } catch (error) {
       logger.warn(
         `OCR failed for ad ${ad.id}: ${error instanceof Error ? error.message : error}`
@@ -97,5 +124,5 @@ export async function runOcr(domain: string, options: OcrOptions): Promise<numbe
   });
 
   logger.info(`OCR completed. Updated ${processed} ads.`);
-  return processed;
+  return { processed, total: targets.length, results };
 }

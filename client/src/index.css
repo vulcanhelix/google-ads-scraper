@@ -1,0 +1,165 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg-primary: #0c0e14;
+  --bg-card: #13161f;
+  --bg-elevated: #1a1e2b;
+  --bg-hover: #222738;
+  --border-default: rgba(255, 255, 255, 0.06);
+  --border-bright: rgba(255, 255, 255, 0.12);
+  --text-primary: #f0f2f5;
+  --text-secondary: #8b92a5;
+  --text-tertiary: #5a6178;
+  --accent: #6366f1;
+  --accent-light: #818cf8;
+  --accent-glow: rgba(99, 102, 241, 0.15);
+  --success: #34d399;
+  --success-glow: rgba(52, 211, 153, 0.12);
+  --warn: #fbbf24;
+  --error: #f87171;
+}
+
+@layer base {
+  body {
+    font-family: 'DM Sans', -apple-system, sans-serif;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  ::selection {
+    background: var(--accent);
+    color: white;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--text-tertiary);
+    border-radius: 3px;
+  }
+}
+
+@layer components {
+  .glass-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-default);
+    border-radius: 16px;
+    backdrop-filter: blur(12px);
+  }
+
+  .glass-card-elevated {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-bright);
+    border-radius: 16px;
+  }
+
+  .input-dark {
+    @apply w-full px-4 py-3 rounded-xl outline-none transition-all duration-200;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-default);
+    color: var(--text-primary);
+    font-family: 'DM Sans', sans-serif;
+  }
+  .input-dark::placeholder {
+    color: var(--text-tertiary);
+  }
+  .input-dark:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-glow);
+  }
+
+  .btn-accent {
+    @apply w-full py-4 font-semibold rounded-xl transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2;
+    background: var(--accent);
+    color: white;
+    box-shadow: 0 4px 24px var(--accent-glow);
+  }
+  .btn-accent:hover:not(:disabled) {
+    background: var(--accent-light);
+    box-shadow: 0 6px 32px var(--accent-glow);
+    transform: translateY(-1px);
+  }
+
+  .btn-ghost {
+    @apply py-3 px-5 font-medium rounded-xl transition-all duration-200 flex items-center justify-center gap-2;
+    background: transparent;
+    border: 1px solid var(--border-bright);
+    color: var(--text-secondary);
+  }
+  .btn-ghost:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+    border-color: var(--border-bright);
+  }
+
+  .tag {
+    @apply inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-medium;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-default);
+    color: var(--text-secondary);
+  }
+  .tag-accent {
+    background: var(--accent-glow);
+    border-color: rgba(99, 102, 241, 0.2);
+    color: var(--accent-light);
+  }
+  .tag-success {
+    background: var(--success-glow);
+    border-color: rgba(52, 211, 153, 0.2);
+    color: var(--success);
+  }
+
+  .stat-value {
+    @apply text-3xl font-bold tracking-tight;
+    color: var(--text-primary);
+  }
+  .stat-label {
+    @apply text-xs font-medium uppercase tracking-wider mt-1;
+    color: var(--text-tertiary);
+  }
+}
+
+@layer utilities {
+  .text-gradient-accent {
+    background: linear-gradient(135deg, var(--accent-light), #a78bfa);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .glow-ring {
+    box-shadow: 0 0 0 1px var(--accent-glow), 0 0 24px var(--accent-glow);
+  }
+
+  .mono {
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .fade-in {
+    animation: fadeIn 0.4s ease-out;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .slide-up {
+    animation: slideUp 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  @keyframes slideUp {
+    from { opacity: 0; transform: translateY(24px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+}

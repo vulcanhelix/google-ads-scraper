@@ -99,7 +99,7 @@ export async function parseAdDetails(
         .filter((r) => r.regionCode);
 
       return data;
-    });
+    }) as Record<string, unknown>;
 
     return {
       id: creativeId,
