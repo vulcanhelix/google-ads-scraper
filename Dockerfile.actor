@@ -1,0 +1,22 @@
+# Use Apify's official Node.js + Playwright image
+# This comes with Chrome/Chromium pre-installed and optimized for their platform
+FROM apify/actor-node-playwright-chrome:v1.10.0
+
+# Copy package files
+COPY package*.json ./
+
+# Install dependencies
+# Note: We use --omit=dev to keep the image smaller, 
+# but we need to ensure 'tsx' or 'ts-node' is available if running typescript directly.
+# Ideally, we build it.
+RUN npm install
+
+# Copy source code
+COPY . .
+
+# Build the TypeScript code
+RUN npm run build
+
+# Run the actor
+# We use 'node dist/actor.js' assuming the build outputs there
+CMD [ "node", "dist/actor.js" ]

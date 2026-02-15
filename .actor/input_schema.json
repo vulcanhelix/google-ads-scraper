@@ -1,0 +1,45 @@
+{
+    "title": "Google Ads Scraper Input",
+    "type": "object",
+    "schemaVersion": 1,
+    "properties": {
+        "domain": {
+            "title": "Target Domain",
+            "type": "string",
+            "description": "The domain to scrape ads for (e.g., tesla.com)",
+            "editor": "textfield"
+        },
+        "region": {
+            "title": "Region",
+            "type": "string",
+            "description": "Region to scrape from (e.g., US, GB, CA, anywhere)",
+            "default": "anywhere",
+            "editor": "textfield"
+        },
+        "maxResults": {
+            "title": "Max Results",
+            "type": "integer",
+            "description": "Maximum number of ads to scrape",
+            "default": 20,
+            "minimum": 1,
+            "maximum": 500
+        },
+        "format": {
+            "title": "Format",
+            "type": "string",
+            "description": "Filter by ad format",
+            "editor": "select",
+            "enum": ["any", "image", "video", "text"],
+            "default": "any"
+        },
+        "platform": {
+            "title": "Platform",
+            "type": "string",
+            "description": "Filter by platform",
+            "editor": "select",
+            "enum": ["any", "youtube", "google_search"],
+            "default": "any"
+        }
+    },
+    "required": ["domain"]
+}

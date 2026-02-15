@@ -8,6 +8,7 @@
   },
   "scripts": {
     "build": "tsc",
+    "build:actor": "tsc",
     "start": "node dist/api/server.js",
     "dev": "ts-node src/index.ts",
     "scrape": "ts-node src/index.ts scrape",
@@ -35,6 +36,7 @@
     "@fastify/cors": "^11.2.0",
     "@fastify/static": "^9.0.0",
     "@prisma/client": "^5.8.0",
+    "apify": "^3.5.3",
     "commander": "^11.1.0",
     "concurrently": "^8.2.2",
     "dotenv": "^17.2.3",
