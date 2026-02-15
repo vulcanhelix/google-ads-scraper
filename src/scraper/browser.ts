@@ -18,7 +18,10 @@ export async function createBrowser(config: BrowserConfig): Promise<Browser> {
 
   if (config.useApifyProxy) {
     try {
-      const proxyConfig = await Actor.createProxyConfiguration();
+      // Use Residential proxies for Google Ads to avoid blocks
+      const proxyConfig = await Actor.createProxyConfiguration({
+        groups: ['RESIDENTIAL'],
+      });
       if (proxyConfig) {
         const proxyUrl = await proxyConfig.newUrl();
         if (proxyUrl) {
