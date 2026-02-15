@@ -253,7 +253,10 @@ export async function lookupAdvertiserByDomain(
       const timestamp = Date.now();
       const screenshotKey = `ERROR_SCREENSHOT_${timestamp}`;
       
-      const screenshotBuffer = await page.screenshot({ fullPage: true });
+      const screenshotBuffer = await page.screenshot({ 
+        fullPage: false, // fullPage can hang if page is zombie
+        timeout: 5000 
+      });
       await Actor.setValue(screenshotKey, screenshotBuffer, { contentType: 'image/png' });
       
       logger.info(`Error screenshot saved to Key-Value Store as: ${screenshotKey}`);
