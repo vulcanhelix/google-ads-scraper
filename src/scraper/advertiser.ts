@@ -35,19 +35,40 @@ export async function lookupAdvertiserByDomain(
     
     logger.info(`Navigating to: ${url}`);
     
-    const [_response] = await Promise.all([
-      page.waitForResponse(
-        (r) => r.url().includes('SearchService/SearchCreatives'),
-        { timeout: 60000 }
-      ).catch(() => null),
-      page.goto(url, {
-        waitUntil: 'domcontentloaded',
-        timeout: 60000,
-      }),
-    ]);
+    let navigated = false;
+    let attempts = 0;
+    const maxAttempts = 3;
+    
+    while (!navigated && attempts < maxAttempts) {
+      attempts++;
+      try {
+        logger.info(`Navigation attempt ${attempts}/${maxAttempts}...`);
+        
+        await page.goto(url, {
+          waitUntil: 'commit',
+          timeout: 45000,
+        });
+        
+        logger.info('Connected, waiting for response...');
+        
+        await Promise.race([
+          page.waitForResponse(
+            (r) => r.url().includes('SearchService/SearchCreatives'),
+            { timeout: 30000 }
+          ).catch(() => null),
+          delay(30000),
+        ]);
+        
+        navigated = true;
+      } catch (e) {
+        logger.warn(`Navigation attempt ${attempts} failed: ${e}`);
+        if (attempts === maxAttempts) throw e;
+        await delay(3000);
+      }
+    }
 
-    await delay(3000);
-    await page.waitForLoadState('networkidle').catch(() => {});
+    await delay(2000);
+    await page.waitForLoadState('domcontentloaded').catch(() => {});
     await delay(1000);
 
     const creatives = interceptor.getCreatives();

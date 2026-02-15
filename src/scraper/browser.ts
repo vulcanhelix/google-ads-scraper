@@ -45,12 +45,15 @@ export async function createBrowser(config: BrowserConfig): Promise<Browser> {
     }
   }
 
+  const executablePath = process.env.APIFY_CHROME_EXECUTABLE_PATH || undefined;
+
   const browser = await chromium.launch({
     headless: config.headless,
     proxy: proxySettings,
+    executablePath,
     args: [
       '--disable-blink-features=AutomationControlled',
-      '--disable-features=IsolateOrigins,site-per-process',
+      '--disable-features=IsolateOrigins,site-per-process,OptimizationGuideModelDownloading,OptimizationHintsFetching,OptimizationTargetPrediction,OptimizationHints',
       '--no-sandbox',
       '--disable-setuid-sandbox',
       '--disable-dev-shm-usage',
@@ -58,7 +61,41 @@ export async function createBrowser(config: BrowserConfig): Promise<Browser> {
       '--no-first-run',
       '--no-zygote',
       '--disable-gpu',
+      '--disable-infobars',
+      '--disable-breakpad',
+      '--disable-component-update',
+      '--disable-default-apps',
+      '--disable-extensions',
+      '--disable-sync',
+      '--metrics-recording-only',
+      '--mute-audio',
+      '--no-default-browser-check',
+      '--disable-background-networking',
+      '--disable-background-timer-throttling',
+      '--disable-backgrounding-occluded-windows',
+      '--disable-renderer-backgrounding',
+      '--disable-hang-monitor',
+      '--disable-ipc-flooding-protection',
+      '--disable-popup-blocking',
+      '--disable-prompt-on-repost',
+      '--disable-client-side-phishing-detection',
+      '--disable-domain-reliability',
+      '--disable-features=TranslateUI,BatteryStatus',
+      '--disable-notifications',
+      '--disable-offer-store-unmasked-wallet-cards',
+      '--disable-offer-upload-credit-cards',
+      '--disable-print-preview',
+      '--disable-speech-api',
+      '--disable-tab-for-desktop-share',
+      '--hide-scrollbars',
+      '--ignore-gpu-blacklist',
+      '--no-pings',
+      '--no-zygote',
+      '--password-store=basic',
+      '--use-mock-keychain',
+      '--window-size=1920,1080',
     ],
+    ignoreDefaultArgs: ['--enable-automation', '--enable-logging'],
   });
 
   return browser;
@@ -92,6 +129,30 @@ export async function createContext(
     (window as unknown as Record<string, unknown>).chrome = {
       runtime: {},
     };
+
+    Object.defineProperty(navigator, 'permissions', {
+      get: () => ({
+        query: () => Promise.resolve({ state: 'granted' }),
+      }),
+    });
+
+    Object.defineProperty(navigator, 'platform', {
+      get: () => 'Win32',
+    });
+
+    Object.defineProperty(navigator, 'hardwareConcurrency', {
+      get: () => 8,
+    });
+
+    Object.defineProperty(navigator, 'deviceMemory', {
+      get: () => 8,
+    });
+
+    const originalQuery = window.navigator.permissions.query;
+    (window.navigator.permissions as any).query = (parameters: any) =>
+      parameters.name === 'notifications'
+        ? Promise.resolve({ state: Notification.permission } as PermissionStatus)
+        : originalQuery(parameters);
   });
 
   return context;
