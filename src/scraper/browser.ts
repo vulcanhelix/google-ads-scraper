@@ -2,6 +2,13 @@ import { chromium, Browser, BrowserContext, Page } from 'playwright';
 import { getRandomUserAgent } from '../config';
 import { Actor } from 'apify';
 
+export interface ProxyConfiguration {
+  useApifyProxy?: boolean;
+  apifyProxyGroups?: string[];
+  apifyProxyCountry?: string;
+  proxyUrls?: string[];
+}
+
 export interface BrowserConfig {
   headless: boolean;
   proxy?: {
@@ -10,27 +17,27 @@ export interface BrowserConfig {
     password?: string;
   };
   userAgent?: string;
-  useApifyProxy?: boolean;
+  proxyConfiguration?: ProxyConfiguration;
 }
 
 export async function createBrowser(config: BrowserConfig): Promise<Browser> {
   let proxySettings = config.proxy;
 
-  if (config.useApifyProxy) {
+  if (config.proxyConfiguration?.useApifyProxy !== false) {
     try {
-      // Use Residential proxies for Google Ads to avoid blocks
       const proxyConfig = await Actor.createProxyConfiguration({
-        groups: ['RESIDENTIAL'],
+        groups: config.proxyConfiguration?.apifyProxyGroups,
+        countryCode: config.proxyConfiguration?.apifyProxyCountry,
       });
+      
       if (proxyConfig) {
         const proxyUrl = await proxyConfig.newUrl();
         if (proxyUrl) {
-          // Parse the URL to get server and credentials if needed,
-          // but Playwright accepts the full URL in the server field too.
           proxySettings = {
             server: proxyUrl,
           };
-          console.log('Using Apify Proxy');
+          const groups = config.proxyConfiguration?.apifyProxyGroups?.join(',') || 'auto';
+          console.log(`Using Apify Proxy (groups: ${groups})`);
         }
       }
     } catch (error) {
@@ -66,7 +73,6 @@ export async function createContext(
     viewport: { width: 1920, height: 1080 },
     locale: 'en-US',
     timezoneId: 'America/New_York',
-    proxy: config.proxy,
     javaScriptEnabled: true,
   });
 

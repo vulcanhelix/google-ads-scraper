@@ -39,6 +39,13 @@
             "editor": "select",
             "enum": ["any", "youtube", "google_search"],
             "default": "any"
+        },
+        "proxyConfiguration": {
+            "title": "Proxy configuration",
+            "type": "object",
+            "description": "Select proxies to use. Automatic mode works on all plans. Residential proxies are recommended for best results with Google Ads.",
+            "prefill": { "useApifyProxy": true },
+            "editor": "proxy"
         }
     },
     "required": ["domain"]

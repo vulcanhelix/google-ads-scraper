@@ -3,6 +3,7 @@ import { Actor } from 'apify';
 import { delay } from '../utils/delay';
 import { logger } from '../utils/logger';
 import { URLS } from '../config';
+import { ApiInterceptor } from './api-interceptor';
 
 export interface AdvertiserInfo {
   id: string;
@@ -25,149 +26,81 @@ export async function lookupAdvertiserByDomain(
   try {
     logger.info(`Looking up advertiser for domain: ${domain}`);
 
-    // Navigate to the transparency center with US region for better results
-    const startUrl = `${URLS.BASE}/?region=US`;
-    
-    // Optimizations: Block unnecessary resources to speed up load
-    await page.route('**/*.{png,jpg,jpeg,gif,webp,svg,ico,woff,woff2,ttf,eot}', (route) => route.abort());
-    
-    let connected = false;
-    let attempts = 0;
-    while (!connected && attempts < 3) {
-      attempts++;
-      try {
-        logger.info(`Navigating to Google Ads (Attempt ${attempts}/3)...`);
-        // Step 1: Just connect to the server (should be fast)
-        await page.goto(startUrl, {
-          waitUntil: 'commit',
-          timeout: 60000, 
-        });
-        
-        // Step 2: Wwait for content to load
-        logger.info('Connected, waiting for DOM content...');
-        await page.waitForLoadState('domcontentloaded', { timeout: 60000 });
-        connected = true;
-      } catch (e) {
-        logger.warn(`Navigation attempt ${attempts} failed: ${e}`);
-        if (attempts === 3) throw e;
-        await delay(2000);
-      }
-    }
+    const interceptor = new ApiInterceptor();
+    interceptor.attach(page);
 
-    await delay(2000);
+    await page.route('**/*.{png,jpg,jpeg,gif,webp,svg,ico,woff,woff2,ttf,eot}', (route) => route.abort());
+
+    const url = `${URLS.BASE}/?region=US&domain=${encodeURIComponent(domain)}`;
+    
+    logger.info(`Navigating to: ${url}`);
+    
+    const [_response] = await Promise.all([
+      page.waitForResponse(
+        (r) => r.url().includes('SearchService/SearchCreatives'),
+        { timeout: 60000 }
+      ).catch(() => null),
+      page.goto(url, {
+        waitUntil: 'domcontentloaded',
+        timeout: 60000,
+      }),
+    ]);
+
+    await delay(3000);
     await page.waitForLoadState('networkidle').catch(() => {});
     await delay(1000);
 
-    // Find the search input
-    logger.info('Finding search input...');
-    const searchInput = await page.$('input[type="text"], input[type="search"], input');
+    const creatives = interceptor.getCreatives();
+    logger.info(`API interceptor captured ${creatives.length} creatives`);
     
-    if (!searchInput) {
+    if (creatives.length > 0) {
+      const first = creatives[0];
+      const uniqueAdvertisers = new Map<string, { name: string; count: number }>();
+      
+      for (const c of creatives) {
+        const existing = uniqueAdvertisers.get(c.advertiserId);
+        if (existing) {
+          existing.count++;
+        } else {
+          uniqueAdvertisers.set(c.advertiserId, { name: c.advertiserName, count: 1 });
+        }
+      }
+
+      logger.info(`Found ${uniqueAdvertisers.size} unique advertiser(s) from API`);
+      logger.info(`Primary advertiser: ${first.advertiserName} (${first.advertiserId})`);
+
+      const alternatives: AdvertiserInfo[] = [];
+      for (const [id, info] of uniqueAdvertisers.entries()) {
+        if (id !== first.advertiserId) {
+          alternatives.push({
+            id,
+            name: info.name,
+            verificationStatus: 'UNKNOWN',
+          });
+        }
+      }
+
       return {
-        success: false,
-        error: 'Could not find search input on page',
+        success: true,
+        advertiser: {
+          id: first.advertiserId,
+          name: first.advertiserName,
+          verificationStatus: 'UNKNOWN',
+        },
+        alternatives: alternatives.length > 0 ? alternatives : undefined,
       };
     }
 
-    // Click and type the domain
-    await searchInput.click();
-    await delay(500);
-    
-    // Clear any existing text
-    await page.keyboard.press('Control+a');
-    await page.keyboard.press('Backspace');
-    await delay(300);
-    
-    // Type the domain slowly to trigger autocomplete
-    logger.info(`Typing search term: ${domain}`);
-    await page.keyboard.type(domain, { delay: 100 });
-    
-    // Wait for the autocomplete dropdown to appear
-    logger.info('Waiting for autocomplete dropdown...');
-    await delay(2500);
-
-    // Try to find and click on the domain in the dropdown
-    // Look for elements containing the domain text
-    const dropdownSelectors = [
-      `text="${domain}"`,
-      `[role="option"]:has-text("${domain}")`,
-      `[role="listbox"] >> text="${domain}"`,
-      `a:has-text("${domain}")`,
-      `div:has-text("${domain}"):not(:has(div:has-text("${domain}")))`,
-    ];
-
-    let clicked = false;
-    for (const selector of dropdownSelectors) {
-      try {
-        const element = await page.$(selector);
-        if (element) {
-          // Check if this element is in the visible dropdown
-          const isVisible = await element.isVisible();
-          if (isVisible) {
-            logger.info(`Found dropdown item, clicking: ${selector}`);
-            await element.click();
-            clicked = true;
-            break;
-          }
-        }
-      } catch (e) {
-        continue;
-      }
-    }
-
-    if (!clicked) {
-      // Try clicking any link/button in the autocomplete area
-      logger.info('Trying to click first autocomplete result...');
-      
-      // Look for the dropdown container and click the first result
-      const dropdownItems = await page.$$('[role="option"], [role="listitem"], .suggestion-item');
-      
-      if (dropdownItems.length > 0) {
-        logger.info(`Found ${dropdownItems.length} dropdown items`);
-        // Find one that contains our domain
-        for (const item of dropdownItems) {
-          const text = await item.textContent();
-          if (text?.toLowerCase().includes(domain.toLowerCase().replace('.com', ''))) {
-            await item.click();
-            clicked = true;
-            logger.info(`Clicked item: ${text?.substring(0, 50)}`);
-            break;
-          }
-        }
-        
-        // If no domain match, click the first one
-        if (!clicked && dropdownItems.length > 0) {
-          await dropdownItems[0].click();
-          clicked = true;
-          logger.info('Clicked first dropdown item');
-        }
-      }
-    }
-
-    if (!clicked) {
-      // Last resort: try using keyboard navigation
-      logger.info('Using keyboard to select from dropdown...');
-      await page.keyboard.press('ArrowDown');
-      await delay(300);
-      await page.keyboard.press('Enter');
-    }
-
-    // Wait for navigation
-    await delay(3000);
-    await page.waitForLoadState('networkidle').catch(() => {});
-    await delay(2000);
-
-    // Check if we landed on an advertiser page
     const currentUrl = page.url();
     logger.info(`Current URL: ${currentUrl}`);
     
-    const directMatch = currentUrl.match(/\/advertiser\/(AR\d+)/);
-    if (directMatch) {
-      const advertiserId = directMatch[1];
+    const match = currentUrl.match(/\/advertiser\/(AR\d+)/);
+    if (match) {
+      const advertiserId = match[1];
       const advertiserName = await extractAdvertiserName(page);
       const verificationStatus = await extractVerificationStatus(page);
 
-      logger.info(`Found advertiser: ${advertiserName} (${advertiserId})`);
+      logger.info(`Found advertiser from URL: ${advertiserName} (${advertiserId})`);
       return {
         success: true,
         advertiser: {
@@ -178,34 +111,12 @@ export async function lookupAdvertiserByDomain(
       };
     }
 
-    // Check for advertiser ID in URL params
-    const urlParams = new URL(currentUrl).searchParams;
-    const advertiserIdParam = urlParams.get('advertiser_id');
-    if (advertiserIdParam) {
-      await page.goto(`${URLS.ADVERTISER}${advertiserIdParam}`, {
-        waitUntil: 'domcontentloaded',
-        timeout: 30000,
-      });
-      await delay(3000);
-      
-      const advertiserName = await extractAdvertiserName(page);
-      return {
-        success: true,
-        advertiser: {
-          id: advertiserIdParam,
-          name: advertiserName,
-          verificationStatus: 'UNKNOWN',
-        },
-      };
-    }
-
-    // Search for advertiser IDs in page content
     const pageContent = await page.content();
     const arMatches = pageContent.match(/AR\d{17,20}/g);
     
     if (arMatches && arMatches.length > 0) {
       const uniqueIds = [...new Set(arMatches)];
-      logger.info(`Found ${uniqueIds.length} advertiser ID(s) in page`);
+      logger.info(`Found ${uniqueIds.length} advertiser ID(s) in page content`);
 
       const advertiserId = uniqueIds[0];
       await page.goto(`${URLS.ADVERTISER}${advertiserId}?region=anywhere`, {
@@ -213,8 +124,7 @@ export async function lookupAdvertiserByDomain(
         timeout: 30000,
       });
       
-      await delay(3000);
-      await page.waitForLoadState('networkidle').catch(() => {});
+      await delay(2000);
 
       const advertiserName = await extractAdvertiserName(page);
       const verificationStatus = await extractVerificationStatus(page);
@@ -236,33 +146,25 @@ export async function lookupAdvertiserByDomain(
       };
     }
 
-    // Debug: save screenshot
-    const screenshotPath = `./data/debug-${Date.now()}.png`;
-    await page.screenshot({ path: screenshotPath, fullPage: true }).catch(() => {});
-    logger.info(`Debug screenshot saved to: ${screenshotPath}`);
-
     return {
       success: false,
-      error: `No advertisers found for domain: ${domain}. Try with --no-headless to debug.`,
+      error: `No advertisers found for domain: ${domain}. The domain may not have any Google ads.`,
     };
   } catch (error) {
     logger.error('Advertiser lookup failed:', error);
 
-    // Debug: save screenshot and HTML on error
     try {
       const timestamp = Date.now();
       const screenshotKey = `ERROR_SCREENSHOT_${timestamp}`;
       
       const screenshotBuffer = await page.screenshot({ 
-        fullPage: false, // fullPage can hang if page is zombie
+        fullPage: false,
         timeout: 5000 
       });
       await Actor.setValue(screenshotKey, screenshotBuffer, { contentType: 'image/png' });
       
       logger.info(`Error screenshot saved to Key-Value Store as: ${screenshotKey}`);
-      logger.info(`You can view it in the Apify Console -> Runs -> [This Run] -> Key-Value Store -> ${screenshotKey}`);
       
-      // Let's at least log the page title and current URL
       const title = await page.title();
       const url = page.url();
       logger.error(`Error State - Title: "${title}", URL: "${url}"`);
@@ -281,10 +183,8 @@ export async function lookupAdvertiserByDomain(
 async function extractAdvertiserName(page: Page): Promise<string> {
   await delay(1000);
   
-  // First try getting from page title (most reliable)
   const title = await page.title();
   if (title) {
-    // Title format: "Advertiser Name - Ads Transparency Center"
     const parts = title.split(/\s*[-|–]\s*/);
     if (parts.length > 1) {
       const name = parts[0].trim();
@@ -299,7 +199,6 @@ async function extractAdvertiserName(page: Page): Promise<string> {
     }
   }
   
-  // Try various heading selectors
   const selectors = [
     'h1',
     '[data-advertiser-name]',
@@ -347,7 +246,6 @@ async function extractVerificationStatus(page: Page): Promise<string> {
       return 'VERIFIED';
     }
   } catch {
-    // Ignore
   }
 
   return 'NOT_VERIFIED';
