@@ -155,7 +155,7 @@ export async function scrapeAdvertiserAds(
 
 /**
  * Convert intercepted API creatives to the AdCreative type used by the rest of the app.
- * For text/search ads, loads the preview URL in a new page to extract rendered headline/description.
+ * Extract headline/description from ALL ads by navigating to detail pages.
  */
 async function convertInterceptedAds(
   creatives: InterceptedCreative[],
@@ -164,12 +164,8 @@ async function convertInterceptedAds(
 ): Promise<AdCreative[]> {
   const ads: AdCreative[] = [];
 
-  // Separate text ads from image ads
-  const textAds = creatives.filter((c) => c.textPreviewUrl);
-  const imageAds = creatives.filter((c) => !c.textPreviewUrl);
-
-  // Extract text from text/search ad previews (batch in a single page)
-  const textResults = await extractTextAdContent(textAds, context);
+  // Extract text from ALL ads via detail pages
+  const textResults = await extractTextFromAllAds(creatives, context);
 
   for (const creative of creatives) {
     const format = mapFormatType(creative.formatType);
@@ -194,34 +190,43 @@ async function convertInterceptedAds(
     ads.push(ad);
   }
 
-  logger.info(`Converted ${ads.length} ads (${textAds.length} text, ${imageAds.length} image)`);
+  const withHeadlines = ads.filter(a => a.headline).length;
+  logger.info(`Converted ${ads.length} ads (${withHeadlines} with headline extracted)`);
   return ads;
 }
 
 /**
  * Extract headline/description by navigating to ad detail page and reading iframe content.
+ * Processes ALL ads, not just text format.
  */
-async function extractTextAdContent(
-  textAds: InterceptedCreative[],
+async function extractTextFromAllAds(
+  creatives: InterceptedCreative[],
   context: BrowserContext
 ): Promise<Map<string, { headline: string; description: string }>> {
   const results = new Map<string, { headline: string; description: string }>();
-  if (textAds.length === 0) return results;
+  if (creatives.length === 0) return results;
 
-  logger.info(`Extracting text from ${textAds.length} text/search ad previews via detail pages...`);
+  const batchSize = 5;
+  const maxAds = Math.min(creatives.length, 20); // Limit to first 20 for speed
+  
+  logger.info(`Extracting headline/description from ${maxAds} ads via detail pages...`);
 
-  for (const creative of textAds) {
-    try {
-      const result = await extractFromDetailPage(creative, context);
-      if (result) {
-        results.set(creative.creativeId, result);
+  for (let i = 0; i < maxAds; i += batchSize) {
+    const batch = creatives.slice(i, Math.min(i + batchSize, maxAds));
+    const promises = batch.map(async (creative) => {
+      try {
+        const result = await extractFromDetailPage(creative, context);
+        if (result) {
+          results.set(creative.creativeId, result);
+        }
+      } catch (err) {
+        logger.debug(`Failed to extract text for ${creative.creativeId}: ${err}`);
       }
-    } catch (err) {
-      logger.debug(`Failed to extract text for ${creative.creativeId}: ${err}`);
-    }
+    });
+    await Promise.all(promises);
   }
 
-  logger.info(`Extracted text from ${results.size}/${textAds.length} text ads`);
+  logger.info(`Extracted text from ${results.size}/${maxAds} ads`);
   return results;
 }
 
@@ -234,43 +239,65 @@ async function extractFromDetailPage(
     const detailUrl = `https://adstransparency.google.com/advertiser/${creative.advertiserId}/creative/${creative.creativeId}?region=US`;
     
     await page.goto(detailUrl, { waitUntil: 'networkidle', timeout: 30000 });
-    await new Promise(r => setTimeout(r, 3000));
+    
+    // Wait for lazy-loaded iframe content
+    await new Promise(r => setTimeout(r, 8000));
+    
+    // Scroll to trigger lazy loading
+    await page.evaluate(() => window.scrollTo(0, 500)).catch(() => {});
+    await new Promise(r => setTimeout(r, 2000));
 
     const frames = page.frames();
+    let bestResult: { headline: string; description: string } | null = null;
+    
     for (const frame of frames) {
       try {
         const text = await frame.evaluate(() => document.body?.innerText || '').catch(() => '');
-        if (!text || text.length < 20) continue;
+        if (!text || text.length < 30) continue;
+
+        // Skip if it looks like CSS or main page content
+        if (text.includes('Ads Transparency Centre') || 
+            text.includes('function()') ||
+            text.includes('html,body') ||
+            text.includes('window.wiz_progress')) {
+          continue;
+        }
 
         const cleanText = text.replace(/\s+/g, ' ').trim();
+        const lines = cleanText.split('\n').map(l => l.trim()).filter(l => l.length > 2);
         
-        if (cleanText.includes('Sponsored') && !cleanText.includes('function()')) {
-          const lines = cleanText.split('\n').map(l => l.trim()).filter(l => l.length > 2);
+        // Filter out noise
+        const filtered = lines.filter(l => 
+          !l.startsWith('Sponsored') && 
+          !l.startsWith('Visit') &&
+          !l.match(/^\d{2}:\d{2}$/) &&
+          !l.includes('function()') &&
+          !l.includes('window.wiz') &&
+          !l.includes('html,body') &&
+          !l.startsWith('[Price]') &&
+          !l.match(/^Skip$/i) &&
+          !l.match(/^Install$/i) &&
+          l.length > 8
+        );
+        
+        if (filtered.length > 0) {
+          const headline = filtered[0];
+          const description = filtered.slice(1)
+            .filter(l => l !== headline && l.length > 5)
+            .join(' ')
+            .substring(0, 300);
           
-          const filtered = lines.filter(l => 
-            !l.startsWith('Sponsored') && 
-            !l.startsWith('Visit') &&
-            !l.match(/^\d{2}:\d{2}$/) &&
-            !l.includes('function()') &&
-            l.length > 5
-          );
-          
-          if (filtered.length > 0) {
-            const headline = filtered[0].replace(/^(Sponsored\s+)?(\d{2}:\d{2}\s+)?/, '').trim();
-            const description = filtered.slice(1)
-              .filter(l => l !== headline && l.length > 5)
-              .join(' ')
-              .substring(0, 200);
-            
-            if (headline && headline.length > 3) {
-              return { headline, description };
+          if (headline && headline.length > 5) {
+            // Keep the longest/best headline
+            if (!bestResult || headline.length > bestResult.headline.length) {
+              bestResult = { headline, description };
             }
           }
         }
       } catch (e) {}
     }
 
-    return null;
+    return bestResult;
   } finally {
     await page.close().catch(() => {});
   }
