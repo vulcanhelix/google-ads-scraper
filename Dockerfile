@@ -5,7 +5,8 @@ FROM apify/actor-node-playwright-chrome:20
 COPY package*.json ./
 
 # Install dependencies
-RUN npm install
+# Install dependencies including dev (for tsc)
+RUN npm install --include=dev
 
 # Copy source code
 COPY . .
