@@ -33,11 +33,15 @@ export async function createBrowser(config: BrowserConfig): Promise<Browser> {
       if (proxyConfig) {
         const proxyUrl = await proxyConfig.newUrl();
         if (proxyUrl) {
-          proxySettings = {
-            server: proxyUrl,
-          };
           const groups = config.proxyConfiguration?.apifyProxyGroups?.join(',') || 'auto';
           console.log(`Using Apify Proxy (groups: ${groups})`);
+          
+          const parsedUrl = new URL(proxyUrl);
+          proxySettings = {
+            server: `${parsedUrl.protocol}//${parsedUrl.hostname}:${parsedUrl.port}`,
+            username: parsedUrl.username,
+            password: parsedUrl.password,
+          };
         }
       }
     } catch (error) {
