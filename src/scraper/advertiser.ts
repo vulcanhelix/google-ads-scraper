@@ -26,9 +26,13 @@ export async function lookupAdvertiserByDomain(
 
     // Navigate to the transparency center with US region for better results
     const startUrl = `${URLS.BASE}/?region=US`;
+    
+    // Optimizations: Block unnecessary resources to speed up load
+    await page.route('**/*.{png,jpg,jpeg,gif,webp,svg,ico,woff,woff2,ttf,eot}', (route) => route.abort());
+    
     await page.goto(startUrl, {
       waitUntil: 'domcontentloaded',
-      timeout: 30000,
+      timeout: 60000,
     });
 
     await delay(2000);
