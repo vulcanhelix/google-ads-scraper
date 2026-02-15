@@ -1,6 +1,5 @@
-# Use Apify's official Node.js + Playwright image
-# This comes with Chrome/Chromium pre-installed and optimized for their platform
-FROM apify/actor-node-playwright-chrome:v1.10.0
+# Use Apify's official Node.js + Playwright image (Node 20)
+FROM apify/actor-node-playwright-chrome:20
 
 # Copy package files
 COPY package*.json ./
