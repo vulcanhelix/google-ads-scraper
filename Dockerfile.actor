@@ -6,13 +6,14 @@ FROM apify/actor-node-playwright-chrome:v1.10.0
 COPY package*.json ./
 
 # Install dependencies
-# Note: We use --omit=dev to keep the image smaller, 
-# but we need to ensure 'tsx' or 'ts-node' is available if running typescript directly.
-# Ideally, we build it.
 RUN npm install
 
 # Copy source code
 COPY . .
+
+# Set dummy env vars for Prisma build only (runtime will use real secrets)
+ENV DATABASE_URL="postgresql://build:build@localhost:5432/build"
+ENV DIRECT_URL="postgresql://build:build@localhost:5432/build"
 
 # Build the TypeScript code
 RUN npm run build
