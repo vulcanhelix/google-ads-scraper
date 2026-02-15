@@ -9,7 +9,8 @@
   "scripts": {
     "build": "tsc",
     "build:actor": "tsc",
-    "start": "node dist/api/server.js",
+    "start": "node dist/actor.js",
+    "start:api": "node dist/api/server.js",
     "dev": "ts-node src/index.ts",
     "scrape": "ts-node src/index.ts scrape",
     "api": "tsx src/api/server.ts",
