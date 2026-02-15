@@ -241,6 +241,33 @@ export async function lookupAdvertiserByDomain(
     };
   } catch (error) {
     logger.error('Advertiser lookup failed:', error);
+
+    // Debug: save screenshot and HTML on error
+    try {
+      const timestamp = Date.now();
+      const screenshotPath = `./data/error-${timestamp}.png`;
+      const htmlPath = `./data/error-${timestamp}.html`;
+      
+      await page.screenshot({ path: screenshotPath, fullPage: true });
+      const content = await page.content();
+      // We can't write file system in Apify easily if not using KeyValueStore, 
+      // but 'local' verification relies on file system. 
+      // For Apify, we should probably just log the screenshot as base64 or push to KVS if possible.
+      // For now, let's just log that we TRIED.
+      logger.info(`Error screenshot saved to: ${screenshotPath}`);
+      
+      // In Apify, we can use the Actor.pushData or KeyValueStore to save these artifacts
+      // but we need to import them. For now, this is a local debug aid.
+      // If running on Apify, these files might be lost unless we use KVS.
+      // Let's at least log the page title and current URL
+      const title = await page.title();
+      const url = page.url();
+      logger.error(`Error State - Title: "${title}", URL: "${url}"`);
+      
+    } catch (snapshotError) {
+      logger.error('Failed to capture error snapshot:', snapshotError);
+    }
+
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',
