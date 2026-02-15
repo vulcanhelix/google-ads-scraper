@@ -37,10 +37,15 @@ export async function lookupAdvertiserByDomain(
       attempts++;
       try {
         logger.info(`Navigating to Google Ads (Attempt ${attempts}/3)...`);
+        // Step 1: Just connect to the server (should be fast)
         await page.goto(startUrl, {
-          waitUntil: 'domcontentloaded',
-          timeout: 120000, // 2 minutes
+          waitUntil: 'commit',
+          timeout: 60000, 
         });
+        
+        // Step 2: Wwait for content to load
+        logger.info('Connected, waiting for DOM content...');
+        await page.waitForLoadState('domcontentloaded', { timeout: 60000 });
         connected = true;
       } catch (e) {
         logger.warn(`Navigation attempt ${attempts} failed: ${e}`);
