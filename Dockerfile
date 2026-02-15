@@ -15,8 +15,8 @@ COPY . .
 ENV DATABASE_URL="postgresql://build:build@localhost:5432/build"
 ENV DIRECT_URL="postgresql://build:build@localhost:5432/build"
 
-# Build the TypeScript code
-RUN npm run build
+# Build the TypeScript code (using actor-specific config)
+RUN npm run build:actor
 
 # Run the actor
 # We use 'node dist/actor.js' assuming the build outputs there

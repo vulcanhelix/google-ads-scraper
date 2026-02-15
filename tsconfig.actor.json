@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "dist",
+    "strict": false,
+    "noImplicitAny": false
+  },
+  "include": ["src/actor.ts", "src/scraper/**/*", "src/types.ts", "src/config.ts", "src/utils/**/*"]
+}

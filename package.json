@@ -8,7 +8,7 @@
   },
   "scripts": {
     "build": "tsc",
-    "build:actor": "tsc",
+    "build:actor": "tsc -p tsconfig.actor.json",
     "start": "node dist/actor.js",
     "start:api": "node dist/api/server.js",
     "dev": "ts-node src/index.ts",
