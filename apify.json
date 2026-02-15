@@ -2,7 +2,7 @@
     "name": "google-ads-scraper",
     "version": "1.0.0",
     "buildTag": "latest",
-    "dockerfile": "./Dockerfile.actor",
+    "dockerfile": "./Dockerfile",
     "env": {
         "npm_config_loglevel": "warn"
     },
