@@ -1,135 +1,69 @@
-# Google Ads Transparency Center Scraper
+# Google Ads Transparency Scraper
 
-A powerful, full-stack solution for monitoring competitor ads on the [Google Ads Transparency Center](https://adstransparency.google.com).
-
-**New in v2.0:** Now features a complete Web Dashboard for managing scrapes, viewing results, and running OCR pipelines visually.
-
-![Dashboard Preview](docs/dashboard-preview.png)
+A robust Apify Actor required to scrape competitor ads from the [Google Ads Transparency Center](https://adstransparency.google.com).
 
 ## Features
 
-- **Web Dashboard**: Modern React UI to manage scrapes, view ads, and analyze results.
-- **Full API Server**: Fastify-based REST API for programmatic access.
-- **Advanced Scraping**:
-  - 🔍 Search by domain (e.g., `tesla.com`)
-  - 🔄 Handles infinite scroll & dynamic loading
-  - 🛡️ Anti-detection measures tailored for Google
-- **Intelligent Processing**:
-  - 🧠 programmatic ad preview extraction
-  - 📝 **OCR Pipeline**: Extract text overlay from ad images/videos using Tesseract.js
-- **Data Persistence**:
-  - 💾 Postgres storage (via Prisma)
-  - 📊 JSON/CSV export capabilities
+- **Domain Search**: Scrape all active ads for a specific advertiser domain (e.g., `monday.com`, `tesla.com`).
+- **format Support**: Filter by ad format (Text, Image, Video).
+- **Platform Support**: Filter by network (Google Search, YouTube).
+- **Region Targeting**: Specify the region for the search (e.g., `US`, `GB`, `anywhere`).
+- **Stealth**: Uses smart browser fingerprinting and Apify Proxy (Residential recommended) to avoid detection.
+- **Output**: Returns structured JSON data including:
+  - Ad Creative IDs
+  - Headlines & Descriptions (for search ads)
+  - Image/Video asset URLs
+  - Landing Page URLs
 
-## Quick Start
+## Input Parameters
 
-### Prerequisites
-- Node.js 18+
-- PostgreSQL Database (e.g., local or NeonDB)
-- API Key (for securing backend endpoints)
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `domain` | String | **Required** | The target advertiser's domain (e.g. `nike.com`). |
+| `region` | String | `anywhere` | The region code to search from (e.g. `US`, `GB`). |
+| `maxResults` | Integer | `20` | Maximum number of ads to scrape. |
+| `format` | String | `any` | Filter by `image`, `video`, `text`, or `any`. |
+| `platform` | String | `any` | Filter by `youtube`, `google_search`, or `any`. |
 
-### 1. Installation
+## Output Example
 
-```bash
-# 1. Clone the repository
-git clone https://github.com/vulcanhelix/google_ads_scraper.git
-cd google_ads_scraper
+The actor stores results in the default dataset.
 
-# 2. Install Backend Dependencies
-npm install
-npx playwright install chromium
-
-# 3. Install Frontend Dependencies
-cd client
-npm install
-cd ..
+```json
+[
+  {
+    "id": "CR03335465984256376833",
+    "advertiserId": "AR17828074650563772417",
+    "format": "text",
+    "platforms": ["google_search"],
+    "targetDomain": "monday.com",
+    "headline": "Manage Your Projects - The Visual Project Management",
+    "description": "Plan, Track And Collaborate On Projects. Try monday.com For Free Today!",
+    "displayUrl": "monday.com/project-management",
+    "previewUrl": "https://adstransparency.google.com/...",
+    "imageUrl": null,
+    "videoUrl": null
+  },
+  {
+    "id": "CR123...",
+    "format": "image",
+    "imageUrl": "https://tpc.googlesyndication.com/simgad/...",
+    ...
+  }
+]
 ```
 
-### 2. Configuration
+## Proxy Configuration
 
-Create a `.env` file in the root directory:
+This actor requires a proxy to function correctly, as Google aggressively blocks data center IPs.
+**Residential Proxies** are highly recommended for stability.
 
-```env
-# Database Connection
-DATABASE_URL="postgres://user:pass@host:5432/db"
+## Running Locally
 
-# API Security
-API_SECRET_KEY="your-super-secret-key"
+To run this actor locally for development:
 
-# Optional: Port Configuration
-PORT=3000
-```
+1.  Clone the repo.
+2.  Install dependencies: `npm install`.
+3.  Run the full stack app (Dashboard + API): `npm run dev:all`.
 
-### 3. Database Setup
-
-```bash
-# Push schema to database
-npm run db:push
-
-# (Optional) View data in Prisma Studio
-npm run db:studio
-```
-
-### 4. Run the App
-
-Run both the Backend API and Frontend Client concurrently:
-
-```bash
-npm run dev:all
-```
-
-- **Frontend**: http://localhost:5173
-- **Backend API**: http://localhost:3000
-
----
-
-## Usage Mode
-
-### 🖥️ Web Dashboard (Recommended)
-Navigate to `http://localhost:5173`.
-1. **Scrape**: Enter a domain (e.g., `monday.com`) and start a scrape.
-2. **View**: Browse captured ads in a grid view.
-3. **Analyze**: Click "Run OCR" on specific ads to extract text.
-
-### 💻 CLI & Headless
-You can still run the scraper directly from the command line:
-
-```bash
-# Basic Scrape
-npm run scrape -- tesla.com
-
-# With Options
-npm run scrape -- nike.com --region US --format video --max 20
-```
-
-### 🔌 API Endpoints
-The backend exposes a REST API for integration:
-
-- `POST /api/scrape`: Trigger a background scrape job
-- `GET /api/ads`: List captured ads with filtering
-- `POST /api/ocr/combined`: Run scrape + OCR in sequence
-
-## OCR Architecture
-
-The system uses a 2-stage process for detailed ad analysis:
-1. **Scrape Phase**: Captures the Ad Creative ID and Preview URL.
-2. **OCR Phase**: Fetches the high-res asset from the Preview URL and processes it through `tesseract.js` to extract text overlays, headlines, and calls-to-action.
-
-## Project Structure
-
-```
-├── src/                  # Backend Source
-│   ├── api/              # Fastify Server & Routes
-│   ├── scraper/          # Playwright Logic
-│   ├── database/         # Prisma Client
-│   └── commands/         # CLI Tools
-├── client/               # Frontend Source (React + Vite)
-│   ├── src/
-│   │   ├── components/   # UI Components
-│   │   └── hooks/        # API Integration Hooks
-└── prisma/               # Database Schema
-```
-
-## License
-
-MIT
+*Note: This repository contains both the Apify Actor logic (`src/actor.ts`) and a full-stack dashboard (`client/`). The Actor builds specifically from `src/actor.ts`.*
