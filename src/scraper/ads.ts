@@ -42,15 +42,18 @@ export async function scrapeAdvertiserAds(
 
     url += `?${params.toString()}`;
 
+    // Optimizations: Block unnecessary resources to speed up load
+    await page.route('**/*.{png,jpg,jpeg,gif,webp,svg,ico,woff,woff2,ttf,eot}', (route) => route.abort());
+
     // Wait for the initial SearchCreatives API response alongside page load
     const [_response] = await Promise.all([
       page.waitForResponse(
         (r) => r.url().includes('SearchService/SearchCreatives'),
-        { timeout: 30000 }
+        { timeout: 120000 }
       ).catch(() => null),
       page.goto(url, {
         waitUntil: 'domcontentloaded',
-        timeout: 30000,
+        timeout: 120000,
       }),
     ]);
 
@@ -300,11 +303,11 @@ async function loadAndExtractAdText(
       });
 
       // Navigate to the dummy URL which returns our wrapper
-      await page.goto(dummyUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
+      await page.goto(dummyUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
       
       // Wait for the callback to fire and render content
       try {
-        await page.waitForSelector('.ad-rendered', { timeout: 5000 });
+        await page.waitForSelector('.ad-rendered', { timeout: 10000 });
       } catch (e) {
         // Callback didn't fire or failed, wait a bit just in case
         await delay(2000);
@@ -313,7 +316,7 @@ async function loadAndExtractAdText(
       // Fallback for standard HTML URLs (if any)
       await page.goto(creative.textPreviewUrl, {
         waitUntil: 'domcontentloaded',
-        timeout: 15000,
+        timeout: 30000,
       });
     }
 

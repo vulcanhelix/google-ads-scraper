@@ -30,10 +30,23 @@ export async function lookupAdvertiserByDomain(
     // Optimizations: Block unnecessary resources to speed up load
     await page.route('**/*.{png,jpg,jpeg,gif,webp,svg,ico,woff,woff2,ttf,eot}', (route) => route.abort());
     
-    await page.goto(startUrl, {
-      waitUntil: 'domcontentloaded',
-      timeout: 60000,
-    });
+    let connected = false;
+    let attempts = 0;
+    while (!connected && attempts < 3) {
+      attempts++;
+      try {
+        logger.info(`Navigating to Google Ads (Attempt ${attempts}/3)...`);
+        await page.goto(startUrl, {
+          waitUntil: 'domcontentloaded',
+          timeout: 120000, // 2 minutes
+        });
+        connected = true;
+      } catch (e) {
+        logger.warn(`Navigation attempt ${attempts} failed: ${e}`);
+        if (attempts === 3) throw e;
+        await delay(2000);
+      }
+    }
 
     await delay(2000);
     await page.waitForLoadState('networkidle').catch(() => {});
