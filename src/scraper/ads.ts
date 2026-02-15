@@ -199,8 +199,7 @@ async function convertInterceptedAds(
 }
 
 /**
- * Load text/search ad preview URLs and extract rendered headline/description.
- * Processes up to 5 ads at a time for efficiency.
+ * Extract headline/description by navigating to ad detail page and reading iframe content.
  */
 async function extractTextAdContent(
   textAds: InterceptedCreative[],
@@ -209,202 +208,68 @@ async function extractTextAdContent(
   const results = new Map<string, { headline: string; description: string }>();
   if (textAds.length === 0) return results;
 
-  logger.info(`Extracting text from ${textAds.length} text/search ad previews...`);
+  logger.info(`Extracting text from ${textAds.length} text/search ad previews via detail pages...`);
 
-  // Process in batches of 5
-  const batchSize = 5;
-  for (let i = 0; i < textAds.length; i += batchSize) {
-    const batch = textAds.slice(i, i + batchSize);
-    const promises = batch.map(async (creative) => {
-      try {
-        const result = await loadAndExtractAdText(creative, context);
-        if (result) {
-          results.set(creative.creativeId, result);
-        }
-      } catch (err) {
-        logger.debug(`Failed to extract text for ${creative.creativeId}: ${err}`);
+  for (const creative of textAds) {
+    try {
+      const result = await extractFromDetailPage(creative, context);
+      if (result) {
+        results.set(creative.creativeId, result);
       }
-    });
-    await Promise.all(promises);
+    } catch (err) {
+      logger.debug(`Failed to extract text for ${creative.creativeId}: ${err}`);
+    }
   }
 
   logger.info(`Extracted text from ${results.size}/${textAds.length} text ads`);
   return results;
 }
 
-/**
- * Load a single text ad preview URL and extract headline/description from the rendered content.
- */
-async function loadAndExtractAdText(
+async function extractFromDetailPage(
   creative: InterceptedCreative,
   context: BrowserContext
 ): Promise<{ headline: string; description: string } | null> {
-  if (!creative.textPreviewUrl) return null;
-
   const page = await context.newPage();
   try {
-    // Check if it's a JS-based preview (standard for text ads now)
-    const urlObj = new URL(creative.textPreviewUrl);
-    const htmlParentId = urlObj.searchParams.get('htmlParentId');
-    const responseCallback = urlObj.searchParams.get('responseCallback');
+    const detailUrl = `https://adstransparency.google.com/advertiser/${creative.advertiserId}/creative/${creative.creativeId}?region=US`;
+    
+    await page.goto(detailUrl, { waitUntil: 'networkidle', timeout: 30000 });
+    await new Promise(r => setTimeout(r, 3000));
 
-    if (htmlParentId && responseCallback) {
-      // It is a JS preview. We must render it inside a wrapper HTML page.
-      // We use request interception to serve this wrapper on a "valid" URL
-      // to avoid 'Access is denied' errors with document.cookie on about:blank.
-      const dummyUrl = 'http://dummy-render.local/ad';
-      
-      await page.route(dummyUrl, async (route) => {
-        const htmlWrapper = `
-          <!DOCTYPE html>
-          <html>
-          <head><meta charset="utf-8"></head>
-          <body>
-            <div id="${htmlParentId}"></div>
-            <script>
-              // Shim document.cookie to prevent access violation errors
-              try {
-                Object.defineProperty(document, 'cookie', {
-                  get: () => '',
-                  set: () => {}
-                });
-              } catch(e) {}
-
-              // Define the callback that Google's script will call
-              window['${responseCallback}'] = function(data) {
-                const container = document.getElementById('${htmlParentId}');
-                if (!container) return;
-
-                // Data can be a string of HTML or an object with a 'content' property
-                let htmlContent = '';
-                if (typeof data === 'string') {
-                  htmlContent = data;
-                } else if (data && data.content) {
-                  htmlContent = data.content;
-                }
-
-                if (htmlContent) {
-                  container.innerHTML = htmlContent;
-                  // Add a marker for Playwright to wait for
-                  document.body.classList.add('ad-rendered');
-                }
-              };
-            </script>
-            <script src="${creative.textPreviewUrl}"></script>
-          </body>
-          </html>
-        `;
-        
-        await route.fulfill({
-          status: 200,
-          contentType: 'text/html',
-          body: htmlWrapper
-        });
-      });
-
-      // Navigate to the dummy URL which returns our wrapper
-      await page.goto(dummyUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
-      
-      // Wait for the callback to fire and render content
+    const frames = page.frames();
+    for (const frame of frames) {
       try {
-        await page.waitForSelector('.ad-rendered', { timeout: 10000 });
-      } catch (e) {
-        // Callback didn't fire or failed, wait a bit just in case
-        await delay(2000);
-      }
-    } else {
-      // Fallback for standard HTML URLs (if any)
-      await page.goto(creative.textPreviewUrl, {
-        waitUntil: 'domcontentloaded',
-        timeout: 30000,
-      });
-    }
+        const text = await frame.evaluate(() => document.body?.innerText || '').catch(() => '');
+        if (!text || text.length < 20) continue;
 
-    await delay(1000);
-
-    // Extract all visible text from the rendered ad
-    const textContent = await page.evaluate(() => {
-      // Remove script/style elements
-      const scripts = document.querySelectorAll('script, style, noscript');
-      scripts.forEach((s) => s.remove());
-
-      // Get all text nodes
-      const body = document.body;
-      if (!body) return { allText: '', elements: [] as Array<{ tag: string; text: string; fontSize: string }> };
-
-      const elements: Array<{ tag: string; text: string; fontSize: string }> = [];
-      const walker = document.createTreeWalker(body, NodeFilter.SHOW_ELEMENT);
-      
-      let node: Node | null = walker.currentNode;
-      while (node) {
-        const el = node as HTMLElement;
-        const text = el.textContent?.trim() || '';
-        if (text && el.children.length === 0 && text.length > 1) {
-          const style = window.getComputedStyle(el);
-          elements.push({
-            tag: el.tagName.toLowerCase(),
-            text: text,
-            fontSize: style.fontSize,
-          });
+        const cleanText = text.replace(/\s+/g, ' ').trim();
+        
+        if (cleanText.includes('Sponsored') && !cleanText.includes('function()')) {
+          const lines = cleanText.split('\n').map(l => l.trim()).filter(l => l.length > 2);
+          
+          const filtered = lines.filter(l => 
+            !l.startsWith('Sponsored') && 
+            !l.startsWith('Visit') &&
+            !l.match(/^\d{2}:\d{2}$/) &&
+            !l.includes('function()') &&
+            l.length > 5
+          );
+          
+          if (filtered.length > 0) {
+            const headline = filtered[0].replace(/^(Sponsored\s+)?(\d{2}:\d{2}\s+)?/, '').trim();
+            const description = filtered.slice(1)
+              .filter(l => l !== headline && l.length > 5)
+              .join(' ')
+              .substring(0, 200);
+            
+            if (headline && headline.length > 3) {
+              return { headline, description };
+            }
+          }
         }
-        node = walker.nextNode();
-      }
-
-      return {
-        allText: body.innerText?.trim() || '',
-        elements,
-      };
-    });
-
-    if (!textContent.elements.length && !textContent.allText) return null;
-
-    // Parse headline and description from extracted elements
-    // Typically: largest font = headline, rest = description
-    // Filter out "Sponsored", URLs, and very short text
-    const meaningful = textContent.elements.filter((el) => {
-      const text = el.text;
-      if (text.length <= 2) return false;
-      if (/^(sponsored|ad|ads)$/i.test(text)) return false;
-      if (/^(https?:\/\/|www\.)/i.test(text)) return false;
-      return true;
-    });
-
-    if (meaningful.length === 0) {
-      // Fall back to full text
-      const lines = textContent.allText
-        .split('\n')
-        .map((l) => l.trim())
-        .filter((l) => l.length > 2)
-        .filter((l) => !/^(sponsored|ad|ads)$/i.test(l))
-        .filter((l) => !/^(https?:\/\/|www\.)/i.test(l));
-
-      if (lines.length === 0) return null;
-      return {
-        headline: lines[0],
-        description: lines.slice(1).join(' '),
-      };
+      } catch (e) {}
     }
 
-    // Sort by font size descending to find headline
-    const sorted = meaningful.sort((a, b) => {
-      const sizeA = parseFloat(a.fontSize) || 0;
-      const sizeB = parseFloat(b.fontSize) || 0;
-      return sizeB - sizeA;
-    });
-
-    const headline = sorted[0]?.text || '';
-    const descParts = sorted.slice(1).map((el) => el.text);
-    // Deduplicate (sometimes headline text appears in description too)
-    const description = descParts
-      .filter((t) => t !== headline)
-      .join(' ')
-      .trim();
-
-    return {
-      headline,
-      description,
-    };
-  } catch {
     return null;
   } finally {
     await page.close().catch(() => {});
