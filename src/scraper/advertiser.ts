@@ -1,4 +1,5 @@
 import { Page } from 'playwright';
+import { Actor } from 'apify';
 import { delay } from '../utils/delay';
 import { logger } from '../utils/logger';
 import { URLS } from '../config';
@@ -245,20 +246,14 @@ export async function lookupAdvertiserByDomain(
     // Debug: save screenshot and HTML on error
     try {
       const timestamp = Date.now();
-      const screenshotPath = `./data/error-${timestamp}.png`;
-      const htmlPath = `./data/error-${timestamp}.html`;
+      const screenshotKey = `ERROR_SCREENSHOT_${timestamp}`;
       
-      await page.screenshot({ path: screenshotPath, fullPage: true });
-      const content = await page.content();
-      // We can't write file system in Apify easily if not using KeyValueStore, 
-      // but 'local' verification relies on file system. 
-      // For Apify, we should probably just log the screenshot as base64 or push to KVS if possible.
-      // For now, let's just log that we TRIED.
-      logger.info(`Error screenshot saved to: ${screenshotPath}`);
+      const screenshotBuffer = await page.screenshot({ fullPage: true });
+      await Actor.setValue(screenshotKey, screenshotBuffer, { contentType: 'image/png' });
       
-      // In Apify, we can use the Actor.pushData or KeyValueStore to save these artifacts
-      // but we need to import them. For now, this is a local debug aid.
-      // If running on Apify, these files might be lost unless we use KVS.
+      logger.info(`Error screenshot saved to Key-Value Store as: ${screenshotKey}`);
+      logger.info(`You can view it in the Apify Console -> Runs -> [This Run] -> Key-Value Store -> ${screenshotKey}`);
+      
       // Let's at least log the page title and current URL
       const title = await page.title();
       const url = page.url();
