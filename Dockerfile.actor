@@ -20,4 +20,6 @@ RUN npm run build
 
 # Run the actor
 # We use 'node dist/actor.js' assuming the build outputs there
+# Run the actor
+# We use 'node dist/actor.js' assuming the build outputs there
 CMD [ "node", "dist/actor.js" ]
