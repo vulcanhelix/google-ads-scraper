@@ -836,3 +836,39 @@ Scrape failed: Error: Advertiser not found for domain: knowify.com
 ## Contact
 
 This debugging log was created to hand off to another LLM for continued development. The core issues have been fixed: headlines extracted via OCR/preview rendering, correct advertiser selected by domain matching, advertiserName included in output.
+---
+
+### Phase 8: Eliminate Duplicate Creative Fetching
+
+#### Issue 8.1: Creatives fetched twice (advertiser lookup + ad scraping)
+**Problem:** The scraper navigated to Google Ads Transparency Center TWICE:
+1. `lookupAdvertiserByDomain()` → navigates, intercepts 40 creatives, extracts advertiser ID, **discards creatives**
+2. `scrapeAdvertiserAds()` → navigates again, intercepts same 40 creatives, processes them
+
+**Impact:** ~60-90 seconds wasted per scrape run on redundant navigation.
+
+**Root Cause:** The two functions were written independently. `lookupAdvertiserByDomain()` was designed to return only advertiser info, not the intercepted creatives.
+
+**Fix:**
+1. Modified `AdvertiserLookupResult` to include `creatives: InterceptedCreative[]`
+2. `lookupAdvertiserByDomain()` now returns all intercepted creatives
+3. `scrapeAdvertiserAds()` accepts optional `preInterceptedCreatives` parameter
+4. If pre-intercepted creatives meet/exceed maxResults, skip navigation entirely
+5. Updated `actor.ts` and `src/commands/scrape.ts` to pass creatives between functions
+
+**Log evidence of fix:**
+```
+[INFO] API interceptor captured 40 creatives
+[INFO] Found advertiser: Shopify Inc.
+[INFO] Using 40 pre-intercepted creatives (skipping navigation)  <-- KEY LOG
+[INFO] Total unique creatives: 40, processing: 5
+```
+
+**Timing improvement (local test, 5 ads):**
+- Before: ~63 seconds (lookup 8s + scrape nav 55s)
+- After: ~25 seconds (lookup 10s + OCR 12s, no second nav)
+- **60% faster**
+
+**Commit:** `perf: eliminate duplicate creative fetching by reusing intercepted data`
+
+**Status:** ✅ Fixed

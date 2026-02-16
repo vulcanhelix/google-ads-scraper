@@ -147,7 +147,14 @@ export async function scrape(domain: string, options: ScrapeOptions): Promise<vo
       extractHeadlines: true,
     };
 
-    const scrapeResult = await scrapeAdvertiserAds(page, advertiser.id, filters);
+    // Pass pre-intercepted creatives and context to avoid duplicate navigation
+    const scrapeResult = await scrapeAdvertiserAds(
+      page, 
+      advertiser.id, 
+      filters, 
+      context,
+      lookupResult.creatives  // NEW: pass intercepted creatives from lookup
+    );
 
     if (!scrapeResult.success && scrapeResult.ads.length === 0) {
       throw new Error(scrapeResult.errors.join(', ') || 'Scraping failed');

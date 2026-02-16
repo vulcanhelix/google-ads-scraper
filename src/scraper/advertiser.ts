@@ -3,7 +3,7 @@ import { Actor } from 'apify';
 import { delay } from '../utils/delay';
 import { logger } from '../utils/logger';
 import { URLS } from '../config';
-import { ApiInterceptor } from './api-interceptor';
+import { ApiInterceptor, InterceptedCreative } from './api-interceptor';
 
 export interface AdvertiserInfo {
   id: string;
@@ -15,6 +15,7 @@ export interface AdvertiserInfo {
 export interface AdvertiserLookupResult {
   success: boolean;
   advertiser?: AdvertiserInfo;
+  creatives: InterceptedCreative[];  // NEW: return intercepted creatives
   error?: string;
   alternatives?: AdvertiserInfo[];
 }
@@ -133,10 +134,12 @@ export async function lookupAdvertiserByDomain(
           name: bestName,
           verificationStatus: 'UNKNOWN',
         },
+        creatives: creatives,  // NEW: return ALL intercepted creatives
         alternatives: alternatives.length > 0 ? alternatives : undefined,
       };
     }
 
+    // Fallback: try to extract from URL or page content
     const currentUrl = page.url();
     logger.info(`Current URL: ${currentUrl}`);
     
@@ -154,6 +157,7 @@ export async function lookupAdvertiserByDomain(
           name: advertiserName,
           verificationStatus,
         },
+        creatives: [],  // No creatives in fallback
       };
     }
 
@@ -188,12 +192,14 @@ export async function lookupAdvertiserByDomain(
           name: advertiserName,
           verificationStatus,
         },
+        creatives: [],  // No creatives in fallback
         alternatives: alternatives.length > 0 ? alternatives : undefined,
       };
     }
 
     return {
       success: false,
+      creatives: [],  // Empty creatives on failure
       error: `No advertisers found for domain: ${domain}. The domain may not have any Google ads.`,
     };
   } catch (error) {
@@ -221,6 +227,7 @@ export async function lookupAdvertiserByDomain(
 
     return {
       success: false,
+      creatives: [],  // Empty creatives on error
       error: error instanceof Error ? error.message : 'Unknown error',
     };
   }

@@ -17,138 +17,75 @@ export async function scrapeAdvertiserAds(
   page: Page,
   advertiserId: string,
   filters?: ScrapeFilters,
-  context?: BrowserContext
+  context?: BrowserContext,
+  preInterceptedCreatives?: InterceptedCreative[]  // NEW: optional pre-fetched creatives
 ): Promise<AdScrapeResult> {
   const errors: string[] = [];
 
   try {
     logger.info(`Scraping ads for advertiser: ${advertiserId}`);
 
-    // Set up API interceptor BEFORE navigating
-    const interceptor = new ApiInterceptor();
-    interceptor.attach(page);
+    const maxResults = filters?.maxResults || Infinity;
+    let creatives: InterceptedCreative[];
+    let totalCount: number | null = null;
 
-    let url = `${URLS.ADVERTISER}${advertiserId}`;
-    const params = new URLSearchParams();
-
-    // Default to 'anywhere' so the API returns all ads globally
-    // Without this, API only returns ads shown in user's auto-detected region
-    params.set('region', filters?.region || 'anywhere');
-
-    if (filters?.platform) {
-      params.set('platform', filters.platform);
-    }
-    if (filters?.format) {
-      params.set('format', filters.format);
-    }
-
-    url += `?${params.toString()}`;
-
-    // Optimizations: Block unnecessary resources to speed up load
-    await page.route('**/*.{png,jpg,jpeg,gif,webp,svg,ico,woff,woff2,ttf,eot}', (route) => route.abort());
-
-    // Wait for the initial SearchCreatives API response alongside page load
-    const [_response] = await Promise.all([
-      page.waitForResponse(
-        (r) => r.url().includes('SearchService/SearchCreatives'),
-        { timeout: 120000 }
-      ).catch(() => null),
-      page.goto(url, {
-        waitUntil: 'domcontentloaded',
-        timeout: 120000,
-      }),
-    ]);
-
-    // Give the interceptor time to process the response body
-    await delay(3000);
-    await page.waitForLoadState('networkidle').catch(() => {});
-    await delay(1000);
-
-    logger.info(`After initial load: interceptor has ${interceptor.size} creatives`);
-
-    const totalCount = await extractTotalAdCount(page);
-    logger.info(`Total ads reported by page: ${totalCount || 'unknown'}`);
-    logger.info(`API interceptor captured: ${interceptor.size} creatives`);
-
-    // Scroll to trigger lazy-loaded API responses
-    let previousInterceptedCount = interceptor.size;
-    let noNewCount = 0;
-    const maxNoNew = 5;
-    let scrollAttempts = 0;
-    const maxScrollAttempts = 100;
-
-    while (scrollAttempts < maxScrollAttempts) {
-      scrollAttempts++;
-
-      if (filters?.maxResults && interceptor.size >= filters.maxResults) {
-        logger.info(`Reached max results limit: ${filters.maxResults}`);
-        break;
-      }
-
-      // Scroll down
-      await page.evaluate(() => window.scrollBy(0, 800));
-      await delay(1500);
-
-      if (interceptor.size > previousInterceptedCount) {
-        logger.info(`API interceptor: ${interceptor.size} creatives captured`);
-        noNewCount = 0;
-        previousInterceptedCount = interceptor.size;
+    // NEW: Check if we already have sufficient pre-intercepted creatives
+    if (preInterceptedCreatives && preInterceptedCreatives.length > 0) {
+      const needed = filters?.maxResults || Infinity;
+      
+      if (preInterceptedCreatives.length >= needed) {
+        // We have enough creatives - skip navigation entirely
+        logger.info(`Using ${preInterceptedCreatives.length} pre-intercepted creatives (skipping navigation)`);
+        creatives = preInterceptedCreatives;
+        totalCount = creatives.length;
       } else {
-        noNewCount++;
-        if (noNewCount >= maxNoNew) {
-          logger.info('No new API responses after scrolling. Finishing.');
-          break;
+        // Need more creatives - do navigation + scroll
+        logger.info(`Pre-intercepted ${preInterceptedCreatives.length} creatives, need ${needed} - fetching more`);
+        const fetchResult = await fetchCreativesViaNavigation(page, advertiserId, filters);
+        
+        // Merge pre-intercepted with newly fetched, dedup by creativeId
+        const allCreativesMap = new Map<string, InterceptedCreative>();
+        for (const c of preInterceptedCreatives) {
+          allCreativesMap.set(c.creativeId, c);
         }
-      }
-
-      // Check if at bottom
-      const atBottom = await page.evaluate(() => {
-        return window.scrollY + window.innerHeight >= document.body.scrollHeight - 100;
-      });
-
-      if (atBottom) {
-        await delay(2000);
-        const grew = await page.evaluate(() => {
-          const h = document.body.scrollHeight;
-          window.scrollTo(0, h);
-          return h;
-        });
-        await delay(2000);
-        const newH = await page.evaluate(() => document.body.scrollHeight);
-        if (newH <= grew) {
-          logger.info('Reached end of ads list');
-          break;
+        for (const c of fetchResult.creatives) {
+          if (!allCreativesMap.has(c.creativeId)) {
+            allCreativesMap.set(c.creativeId, c);
+          }
         }
+        creatives = Array.from(allCreativesMap.values());
+        totalCount = fetchResult.totalCount;
       }
+    } else {
+      // No pre-intercepted creatives - do full navigation
+      const fetchResult = await fetchCreativesViaNavigation(page, advertiserId, filters);
+      creatives = fetchResult.creatives;
+      totalCount = fetchResult.totalCount;
     }
-
-    // Convert intercepted creatives to AdCreative[]
-    const allCreatives = interceptor.getCreatives();
-    logger.info(`Total unique creatives from API: ${allCreatives.length}`);
 
     // Trim to maxResults BEFORE OCR to avoid wasting time on ads we won't return
-    const interceptedCreatives = filters?.maxResults
-      ? allCreatives.slice(0, filters.maxResults)
-      : allCreatives;
+    const finalCreatives = filters?.maxResults
+      ? creatives.slice(0, filters.maxResults)
+      : creatives;
 
-    // For text/search ads, try to extract headline/description from their preview URLs
+    logger.info(`Total unique creatives: ${creatives.length}, processing: ${finalCreatives.length}`);
+
+    // Convert intercepted creatives to AdCreative[]
     const browserContext = page.context();
     const ads = await convertInterceptedAds(
-      interceptedCreatives, 
+      finalCreatives, 
       advertiserId, 
       browserContext, 
       filters?.extractHeadlines || false
     );
 
-    const textAdCount = ads.filter((a) => a.headline).length;
-    logger.info(`Ads with extracted headline: ${textAdCount}/${ads.length}`);
-
-    const finalAds = ads;
+    const withHeadlines = ads.filter((a) => a.headline).length;
+    logger.info(`Ads with extracted headline: ${withHeadlines}/${ads.length}`);
 
     return {
       success: true,
-      ads: finalAds,
-      totalFound: totalCount || finalAds.length,
+      ads,
+      totalFound: totalCount || ads.length,
       errors,
     };
   } catch (error) {
@@ -163,6 +100,116 @@ export async function scrapeAdvertiserAds(
       ],
     };
   }
+}
+
+/**
+ * Fetch creatives by navigating to the advertiser page and scrolling.
+ * This is the original behavior when no pre-intercepted creatives are available.
+ */
+async function fetchCreativesViaNavigation(
+  page: Page,
+  advertiserId: string,
+  filters?: ScrapeFilters
+): Promise<{ creatives: InterceptedCreative[]; totalCount: number | null }> {
+  // Set up API interceptor BEFORE navigating
+  const interceptor = new ApiInterceptor();
+  interceptor.attach(page);
+
+  let url = `${URLS.ADVERTISER}${advertiserId}`;
+  const params = new URLSearchParams();
+
+  // Default to 'anywhere' so the API returns all ads globally
+  params.set('region', filters?.region || 'anywhere');
+
+  if (filters?.platform) {
+    params.set('platform', filters.platform);
+  }
+  if (filters?.format) {
+    params.set('format', filters.format);
+  }
+
+  url += `?${params.toString()}`;
+
+  // Optimizations: Block unnecessary resources to speed up load
+  await page.route('**/*.{png,jpg,jpeg,gif,webp,svg,ico,woff,woff2,ttf,eot}', (route) => route.abort());
+
+  // Wait for the initial SearchCreatives API response alongside page load
+  const [_response] = await Promise.all([
+    page.waitForResponse(
+      (r) => r.url().includes('SearchService/SearchCreatives'),
+      { timeout: 120000 }
+    ).catch(() => null),
+    page.goto(url, {
+      waitUntil: 'domcontentloaded',
+      timeout: 120000,
+    }),
+  ]);
+
+  // Give the interceptor time to process the response body
+  await delay(3000);
+  await page.waitForLoadState('networkidle').catch(() => {});
+  await delay(1000);
+
+  logger.info(`After initial load: interceptor has ${interceptor.size} creatives`);
+
+  const totalCount = await extractTotalAdCount(page);
+  logger.info(`Total ads reported by page: ${totalCount || 'unknown'}`);
+  logger.info(`API interceptor captured: ${interceptor.size} creatives`);
+
+  // Scroll to trigger lazy-loaded API responses
+  let previousInterceptedCount = interceptor.size;
+  let noNewCount = 0;
+  const maxNoNew = 5;
+  let scrollAttempts = 0;
+  const maxScrollAttempts = 100;
+
+  while (scrollAttempts < maxScrollAttempts) {
+    scrollAttempts++;
+
+    if (filters?.maxResults && interceptor.size >= filters.maxResults) {
+      logger.info(`Reached max results limit: ${filters.maxResults}`);
+      break;
+    }
+
+    // Scroll down
+    await page.evaluate(() => window.scrollBy(0, 800));
+    await delay(1500);
+
+    if (interceptor.size > previousInterceptedCount) {
+      logger.info(`API interceptor: ${interceptor.size} creatives captured`);
+      noNewCount = 0;
+      previousInterceptedCount = interceptor.size;
+    } else {
+      noNewCount++;
+      if (noNewCount >= maxNoNew) {
+        logger.info('No new API responses after scrolling. Finishing.');
+        break;
+      }
+    }
+
+    // Check if at bottom
+    const atBottom = await page.evaluate(() => {
+      return window.scrollY + window.innerHeight >= document.body.scrollHeight - 100;
+    });
+
+    if (atBottom) {
+      await delay(2000);
+      const grew = await page.evaluate(() => {
+        const h = document.body.scrollHeight;
+        window.scrollTo(0, h);
+        return h;
+      });
+      await delay(2000);
+      const newH = await page.evaluate(() => document.body.scrollHeight);
+      if (newH <= grew) {
+        logger.info('Reached end of ads list');
+        break;
+      }
+    }
+  }
+
+  const creatives = interceptor.getCreatives();
+  return { creatives, totalCount };
 }
 
 /**

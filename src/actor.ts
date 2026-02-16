@@ -43,6 +43,7 @@ interface Input {
     const page = await createPage(context);
 
     try {
+      // Lookup advertiser - now returns creatives too
       const lookup = await lookupAdvertiserByDomain(page, domain);
       if (!lookup.success || !lookup.advertiser) {
         throw new Error(`Advertiser not found for domain: ${domain}`);
@@ -58,7 +59,14 @@ interface Input {
         extractHeadlines,
       };
 
-      const result = await scrapeAdvertiserAds(page, lookup.advertiser.id, filters, context);
+      // Pass pre-intercepted creatives to avoid duplicate navigation
+      const result = await scrapeAdvertiserAds(
+        page, 
+        lookup.advertiser.id, 
+        filters, 
+        context,
+        lookup.creatives  // NEW: pass intercepted creatives from lookup
+      );
 
       await Actor.pushData(result.ads);
 
