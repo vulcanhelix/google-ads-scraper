@@ -41,10 +41,10 @@
             "default": "any"
         },
         "extractHeadlines": {
-            "title": "Extract Headlines (Slow)",
+            "title": "Extract Headlines (OCR)",
             "type": "boolean",
-            "description": "Extract headline and description text from ads. This is slower (~30 seconds per ad) as it navigates to each ad detail page.",
-            "default": false
+            "description": "Extract headline and description text from ad images using OCR. Fast (~2-3 seconds per ad).",
+            "default": true
         },
         "proxyConfiguration": {
             "title": "Proxy configuration",

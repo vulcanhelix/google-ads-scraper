@@ -4,6 +4,7 @@ import { delay } from '../utils/delay';
 import { logger } from '../utils/logger';
 import { URLS } from '../config';
 import { ApiInterceptor, InterceptedCreative, timestampToIso } from './api-interceptor';
+import { recognizeImageText } from '../ocr/tesseract';
 
 export interface AdScrapeResult {
   success: boolean;
@@ -161,7 +162,7 @@ export async function scrapeAdvertiserAds(
 
 /**
  * Convert intercepted API creatives to the AdCreative type used by the rest of the app.
- * Optionally extract headline/description from ads by navigating to detail pages.
+ * Uses OCR to extract text from image ads (fast, ~2-3 seconds per image).
  */
 async function convertInterceptedAds(
   creatives: InterceptedCreative[],
@@ -170,16 +171,55 @@ async function convertInterceptedAds(
   extractHeadlines: boolean = false
 ): Promise<AdCreative[]> {
   const ads: AdCreative[] = [];
+  const ocrResults = new Map<string, { headline: string; description: string }>();
 
-  // Only extract headlines if explicitly requested (slow operation)
-  let textResults = new Map<string, { headline: string; description: string }>();
-  if (extractHeadlines && context) {
-    textResults = await extractTextFromAllAds(creatives, context);
+  // Use OCR to extract text from image URLs (fast)
+  if (extractHeadlines) {
+    logger.info(`Extracting headlines via OCR for ${creatives.length} creatives...`);
+    
+    for (let i = 0; i < creatives.length; i++) {
+      const creative = creatives[i];
+      const imageUrl = creative.imageUrl;
+      
+      if (imageUrl) {
+        try {
+          const ocrResult = await recognizeImageText(imageUrl);
+          if (ocrResult.text && ocrResult.confidence > 40) {
+            // Clean up OCR text - remove common noise
+            const cleanText = ocrResult.text
+              .replace(/^Sponsored\s*/i, '')
+              .replace(/\s+/g, ' ')
+              .trim();
+            
+            // Split into lines and filter out noise
+            const lines = cleanText.split('\n')
+              .map(l => l.trim())
+              .filter(l => l.length > 3)
+              .filter(l => !l.match(/^Sponsored$/i))
+              .filter(l => !l.match(/^T\s*www\./i))  // URL lines
+              .filter(l => !l.match(/^\.?$/));
+            
+            if (lines.length > 0) {
+              const headline = lines[0];
+              const description = lines.slice(1)
+                .filter(l => l !== headline)
+                .join(' ')
+                .substring(0, 300);
+              
+              ocrResults.set(creative.creativeId, { headline, description });
+              logger.info(`OCR [${i + 1}/${creatives.length}]: "${headline.substring(0, 50)}..." (${ocrResult.confidence}% confidence)`);
+            }
+          }
+        } catch (e) {
+          logger.debug(`OCR failed for ${creative.creativeId}: ${e}`);
+        }
+      }
+    }
   }
 
   for (const creative of creatives) {
     const format = mapFormatType(creative.formatType);
-    const textResult = textResults.get(creative.creativeId);
+    const ocrResult = ocrResults.get(creative.creativeId);
 
     const ad: AdCreative = {
       id: creative.creativeId,
@@ -193,15 +233,15 @@ async function convertInterceptedAds(
       previewUrl: creative.imageUrl,
       imageUrl: creative.imageUrl,
       regionStats: [],
-      headline: textResult?.headline,
-      description: textResult?.description,
+      headline: ocrResult?.headline,
+      description: ocrResult?.description,
     };
 
     ads.push(ad);
   }
 
   const withHeadlines = ads.filter(a => a.headline).length;
-  logger.info(`Converted ${ads.length} ads (${withHeadlines} with headline extracted)`);
+  logger.info(`Converted ${ads.length} ads (${withHeadlines} with headline extracted via OCR)`);
   return ads;
 }
 
