@@ -206,24 +206,22 @@ async function extractTextFromAllAds(
   const results = new Map<string, { headline: string; description: string }>();
   if (creatives.length === 0) return results;
 
-  const batchSize = 5;
-  const maxAds = Math.min(creatives.length, 20); // Limit to first 20 for speed
+  // Only extract from first 10 ads (to avoid massive timeouts)
+  const maxAds = Math.min(creatives.length, 10);
   
   logger.info(`Extracting headline/description from ${maxAds} ads via detail pages...`);
 
-  for (let i = 0; i < maxAds; i += batchSize) {
-    const batch = creatives.slice(i, Math.min(i + batchSize, maxAds));
-    const promises = batch.map(async (creative) => {
-      try {
-        const result = await extractFromDetailPage(creative, context);
-        if (result) {
-          results.set(creative.creativeId, result);
-        }
-      } catch (err) {
-        logger.debug(`Failed to extract text for ${creative.creativeId}: ${err}`);
+  // Process sequentially to avoid overwhelming the browser
+  for (let i = 0; i < maxAds; i++) {
+    try {
+      const result = await extractFromDetailPage(creatives[i], context);
+      if (result) {
+        results.set(creatives[i].creativeId, result);
+        logger.info(`Extracted headline from ad ${i + 1}/${maxAds}: ${result.headline.substring(0, 50)}...`);
       }
-    });
-    await Promise.all(promises);
+    } catch (err) {
+      logger.debug(`Failed to extract text for ${creatives[i].creativeId}: ${err}`);
+    }
   }
 
   logger.info(`Extracted text from ${results.size}/${maxAds} ads`);
@@ -238,13 +236,22 @@ async function extractFromDetailPage(
   try {
     const detailUrl = `https://adstransparency.google.com/advertiser/${creative.advertiserId}/creative/${creative.creativeId}?region=US`;
     
-    await page.goto(detailUrl, { waitUntil: 'networkidle', timeout: 30000 });
+    // Use domcontentloaded instead of networkidle (more reliable on Apify)
+    await page.goto(detailUrl, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => null);
+    
+    // Wait for page to settle
+    await new Promise(r => setTimeout(r, 5000));
+    
+    // Try to wait for networkidle but don't fail if it times out
+    await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
     
     // Wait for lazy-loaded iframe content
-    await new Promise(r => setTimeout(r, 8000));
+    await new Promise(r => setTimeout(r, 5000));
     
     // Scroll to trigger lazy loading
     await page.evaluate(() => window.scrollTo(0, 500)).catch(() => {});
+    await new Promise(r => setTimeout(r, 3000));
+    await page.evaluate(() => window.scrollTo(0, 1000)).catch(() => {});
     await new Promise(r => setTimeout(r, 2000));
 
     const frames = page.frames();
@@ -253,13 +260,16 @@ async function extractFromDetailPage(
     for (const frame of frames) {
       try {
         const text = await frame.evaluate(() => document.body?.innerText || '').catch(() => '');
-        if (!text || text.length < 30) continue;
+        if (!text || text.length < 20) continue;
 
         // Skip if it looks like CSS or main page content
         if (text.includes('Ads Transparency Centre') || 
             text.includes('function()') ||
             text.includes('html,body') ||
-            text.includes('window.wiz_progress')) {
+            text.includes('window.wiz_progress') ||
+            text.includes('HTML,BODY') ||
+            text.includes('var adData') ||
+            text.includes('googMsgType')) {
           continue;
         }
 
@@ -270,14 +280,17 @@ async function extractFromDetailPage(
         const filtered = lines.filter(l => 
           !l.startsWith('Sponsored') && 
           !l.startsWith('Visit') &&
+          !l.startsWith('Skip') &&
+          !l.startsWith('Install') &&
+          !l.startsWith('[Price]') &&
           !l.match(/^\d{2}:\d{2}$/) &&
+          !l.match(/^\d+\s*ads?$/i) &&
           !l.includes('function()') &&
           !l.includes('window.wiz') &&
           !l.includes('html,body') &&
-          !l.startsWith('[Price]') &&
-          !l.match(/^Skip$/i) &&
-          !l.match(/^Install$/i) &&
-          l.length > 8
+          !l.includes('HTML,BODY') &&
+          !l.match(/^{.*}$/) &&
+          l.length > 10
         );
         
         if (filtered.length > 0) {
@@ -287,8 +300,7 @@ async function extractFromDetailPage(
             .join(' ')
             .substring(0, 300);
           
-          if (headline && headline.length > 5) {
-            // Keep the longest/best headline
+          if (headline && headline.length > 8) {
             if (!bestResult || headline.length > bestResult.headline.length) {
               bestResult = { headline, description };
             }
@@ -298,6 +310,8 @@ async function extractFromDetailPage(
     }
 
     return bestResult;
+  } catch (e) {
+    return null;
   } finally {
     await page.close().catch(() => {});
   }
