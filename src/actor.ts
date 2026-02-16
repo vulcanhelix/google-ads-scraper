@@ -10,6 +10,7 @@ interface Input {
   format?: string;
   platform?: string;
   maxResults?: number;
+  extractHeadlines?: boolean;
   proxyConfiguration?: ProxyConfiguration;
 }
 
@@ -28,10 +29,11 @@ interface Input {
       format, 
       platform, 
       maxResults = 20,
+      extractHeadlines = false,
       proxyConfiguration 
     } = input;
 
-    console.log(`Starting scrape for ${domain} (Region: ${region}, Max: ${maxResults})`);
+    console.log(`Starting scrape for ${domain} (Region: ${region}, Max: ${maxResults}, ExtractHeadlines: ${extractHeadlines})`);
 
     const browser = await createBrowser({
       headless: true,
@@ -53,9 +55,10 @@ interface Input {
         format: format as AdFormat | undefined,
         platform: platform as AdPlatform | undefined,
         maxResults,
+        extractHeadlines,
       };
 
-      const result = await scrapeAdvertiserAds(page, lookup.advertiser.id, filters);
+      const result = await scrapeAdvertiserAds(page, lookup.advertiser.id, filters, context);
 
       await Actor.pushData(result.ads);
 

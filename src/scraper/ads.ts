@@ -15,7 +15,8 @@ export interface AdScrapeResult {
 export async function scrapeAdvertiserAds(
   page: Page,
   advertiserId: string,
-  filters?: ScrapeFilters
+  filters?: ScrapeFilters,
+  context?: BrowserContext
 ): Promise<AdScrapeResult> {
   const errors: string[] = [];
 
@@ -125,8 +126,13 @@ export async function scrapeAdvertiserAds(
     logger.info(`Total unique creatives from API: ${interceptedCreatives.length}`);
 
     // For text/search ads, try to extract headline/description from their preview URLs
-    const context = page.context();
-    const ads = await convertInterceptedAds(interceptedCreatives, advertiserId, context);
+    const browserContext = page.context();
+    const ads = await convertInterceptedAds(
+      interceptedCreatives, 
+      advertiserId, 
+      browserContext, 
+      filters?.extractHeadlines || false
+    );
 
     const textAdCount = ads.filter((a) => a.headline).length;
     logger.info(`Ads with extracted headline: ${textAdCount}/${ads.length}`);
@@ -155,17 +161,21 @@ export async function scrapeAdvertiserAds(
 
 /**
  * Convert intercepted API creatives to the AdCreative type used by the rest of the app.
- * Extract headline/description from ALL ads by navigating to detail pages.
+ * Optionally extract headline/description from ads by navigating to detail pages.
  */
 async function convertInterceptedAds(
   creatives: InterceptedCreative[],
   advertiserId: string,
-  context: BrowserContext
+  context: BrowserContext | undefined,
+  extractHeadlines: boolean = false
 ): Promise<AdCreative[]> {
   const ads: AdCreative[] = [];
 
-  // Extract text from ALL ads via detail pages
-  const textResults = await extractTextFromAllAds(creatives, context);
+  // Only extract headlines if explicitly requested (slow operation)
+  let textResults = new Map<string, { headline: string; description: string }>();
+  if (extractHeadlines && context) {
+    textResults = await extractTextFromAllAds(creatives, context);
+  }
 
   for (const creative of creatives) {
     const format = mapFormatType(creative.formatType);

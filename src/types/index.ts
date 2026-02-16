@@ -65,6 +65,7 @@ export interface ScrapeFilters {
   startDate?: string;
   endDate?: string;
   maxResults?: number;
+  extractHeadlines?: boolean;
 }
 
 export interface ScraperConfig {

@@ -40,6 +40,12 @@
             "enum": ["any", "youtube", "google_search"],
             "default": "any"
         },
+        "extractHeadlines": {
+            "title": "Extract Headlines (Slow)",
+            "type": "boolean",
+            "description": "Extract headline and description text from ads. This is slower (~30 seconds per ad) as it navigates to each ad detail page.",
+            "default": false
+        },
         "proxyConfiguration": {
             "title": "Proxy configuration",
             "type": "object",
