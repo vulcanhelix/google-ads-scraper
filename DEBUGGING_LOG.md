@@ -687,6 +687,8 @@ for (const [id, info] of uniqueAdvertisers.entries()) {
 8. **Never pick `creatives[0]` as the advertiser** - The search results page returns ads from MULTIPLE advertisers (competitors). Must match by domain name.
 9. **Always verify defaults match between input schema and code** - `extractHeadlines` defaulted to `true` in input_schema.json but `false` in actor.ts
 10. **Text ads have `textPreviewUrl`, not `imageUrl`** - Different extraction path needed (browser render vs OCR)
+11. **Reuse Tesseract workers** - Creating/destroying per image adds ~10s overhead each. Reuse one shared worker.
+12. **Google Ads screenshots contain browser chrome** - OCR reads favicon artifacts, URL bars, "Sponsored" labels. Must clean aggressively.
 
 ---
 
@@ -752,6 +754,46 @@ git add -A && git commit -m "message" && git push origin main
 5. **Add region stats** - Capture region-specific ad data from API
 6. **Advertiser matching edge cases** - Domain name matching won't work if advertiser name doesn't contain domain (e.g., "Alphabet Inc." for google.com). May need fallback to highest ad count.
 7. ~~**OCR runs on ALL 40 creatives even when maxResults=10**~~ - ✅ Fixed: creatives now sliced to maxResults BEFORE OCR
+
+---
+
+### Phase 7: OCR Speed + Accuracy Improvements
+
+#### Issue 7.1: Tesseract worker created/destroyed per image (~10s overhead each)
+**Problem:** `recognizeImageText()` called `createWorker('eng')` and `worker.terminate()` for EVERY image. Worker initialization takes ~10s on Apify, so 5 images = 50s of pure overhead.
+
+**Fix:** Reuse a single shared Tesseract worker across all OCR calls. Only terminate after all images are processed.
+
+```typescript
+let sharedWorker: Worker | null = null;
+async function getWorker(): Promise<Worker> {
+  if (!sharedWorker) sharedWorker = await createWorker('eng');
+  return sharedWorker;
+}
+```
+
+**Status:** ✅ Fixed
+
+---
+
+#### Issue 7.2: OCR picks up browser chrome noise (favicon, URL bar, "Sponsored")
+**Problem:** Google Ads screenshots include UI chrome. OCR reads favicon artifacts as `"k`, `ww`, `Eo)`, `=)`, `8`, etc. URL bars produce `(0) www.knowify.com/` noise in descriptions.
+
+**Examples:**
+- `"k Knowify` → should be `Knowify`
+- `ww Knowify` → should be `Knowify`
+- `Eo) Authsignal` → should be `Authsignal`
+- `=) Authsignal` → should be `Authsignal`
+
+**Fix:** Added `cleanOcrText()` function that:
+1. Strips leading symbols (`"`, `~`, `=)`, etc.)
+2. Strips favicon artifacts (`(0)`, `Eo)`, lone digits)
+3. Strips lone 1-2 char prefixes (`ww`, `k`) unless they're real words (`a`, `I`, `in`, etc.)
+4. Filters URL-only lines
+5. Strips URL fragments from description lines
+6. Handles "Sponsored" in multiple languages
+
+**Status:** ✅ Fixed
 
 ---
 

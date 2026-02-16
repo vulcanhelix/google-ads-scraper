@@ -4,7 +4,7 @@ import { delay } from '../utils/delay';
 import { logger } from '../utils/logger';
 import { URLS } from '../config';
 import { ApiInterceptor, InterceptedCreative, timestampToIso } from './api-interceptor';
-import { recognizeImageText } from '../ocr/tesseract';
+import { recognizeImageText, terminateWorker } from '../ocr/tesseract';
 
 export interface AdScrapeResult {
   success: boolean;
@@ -190,22 +190,10 @@ async function convertInterceptedAds(
         try {
           const ocrResult = await recognizeImageText(creative.imageUrl);
           if (ocrResult.text && ocrResult.confidence > 40) {
-            const lines = ocrResult.text.split('\n')
-              .map(l => l.trim())
-              .filter(l => l.length > 3)
-              .filter(l => !l.match(/^Sponsored$/i))
-              .filter(l => !l.match(/^T?\s*www\./i))
-              .filter(l => !l.match(/^\.?$/));
-            
-            if (lines.length > 0) {
-              const headline = lines[0];
-              const description = lines.slice(1)
-                .filter(l => l !== headline)
-                .join(' ')
-                .substring(0, 300);
-              
-              ocrResults.set(creative.creativeId, { headline, description });
-              logger.info(`OCR [${i + 1}/${creatives.length}]: "${headline.substring(0, 50)}..." (${ocrResult.confidence}% confidence)`);
+            const cleaned = cleanOcrText(ocrResult.text);
+            if (cleaned) {
+              ocrResults.set(creative.creativeId, cleaned);
+              logger.info(`OCR [${i + 1}/${creatives.length}]: "${cleaned.headline.substring(0, 50)}..." (${ocrResult.confidence}% confidence)`);
             }
           }
         } catch (e) {
@@ -225,6 +213,9 @@ async function convertInterceptedAds(
         }
       }
     }
+
+    // Release the shared Tesseract worker
+    await terminateWorker();
   }
 
   for (const creative of creatives) {
@@ -376,6 +367,73 @@ async function extractFromDetailPage(
   } finally {
     await page.close().catch(() => {});
   }
+}
+
+/**
+ * Clean raw OCR text from a Google Ads screenshot.
+ * The screenshot contains browser chrome (favicon, URL bar, "Sponsored" label)
+ * that produces noise like `"k`, `ww`, `(0)`, `®` before the actual ad copy.
+ */
+function cleanOcrText(rawText: string): { headline: string; description: string } | null {
+  const lines = rawText.split('\n')
+    .map(l => l.trim())
+    .filter(l => l.length > 0);
+
+  const cleanedLines: string[] = [];
+  for (const line of lines) {
+    // Skip pure noise lines
+    if (line.length <= 3) continue;
+    if (/^Sponsored$/i.test(line)) continue;
+    if (/^Sponsorowane$/i.test(line)) continue;
+    if (/^Sponsoris/i.test(line)) continue;
+    if (/^Gesponsert$/i.test(line)) continue;
+    if (/^Sponsrad$/i.test(line)) continue;
+    if (/^Patrocinado$/i.test(line)) continue;
+    if (/^Sponsoriz/i.test(line)) continue;
+    if (/^Ad$/i.test(line)) continue;
+    if (/^\.*$/.test(line)) continue;
+
+    // Clean leading OCR noise: favicon artifacts, symbols, parenthetical junk
+    let cleaned = line
+      .replace(/^["""\u201C\u201D"'`~=)\]}>|*#@!¢£€¥§©®™•·°±×÷]+\s*/g, '') // leading symbols
+      .replace(/^\(?[0-9oO]\)\s*/g, '')   // (0), (O) - favicon circle artifacts
+      .replace(/^[0-9]\s+(?=[A-Z])/g, '') // lone digit before a word (favicon artifact)
+      .replace(/^[a-zA-Z]{1,2}\s+(?=\S)/, (match) => {  // lone 1-2 char prefix like "ww ", "k "
+        // Only strip if it looks like noise, not a real word
+        const prefix = match.trim().toLowerCase();
+        if (['a', 'i', 'an', 'at', 'be', 'by', 'do', 'go', 'if', 'in', 'is', 'it', 'my', 'no', 'of', 'on', 'or', 'so', 'to', 'up', 'us', 'we'].includes(prefix)) {
+          return match; // keep real words
+        }
+        return ''; // strip noise
+      })
+      .replace(/^®\s*/g, '')              // registered trademark
+      .replace(/^[Ee][Oo]\)\s*/g, '')     // Eo) artifact
+      .replace(/^[Pp][Oo]\)\s*/g, '')     // Po) artifact
+      .trim();
+
+    // Skip URL-only lines
+    if (/^(https?:\/\/|www\.)\S+$/i.test(cleaned)) continue;
+    // Skip lines that are just a URL with minor prefix
+    if (/^[^\s]{0,3}\s*(https?:\/\/|www\.)\S+$/i.test(cleaned)) continue;
+
+    if (cleaned.length > 3) {
+      cleanedLines.push(cleaned);
+    }
+  }
+
+  if (cleanedLines.length === 0) return null;
+
+  // First meaningful line is the headline
+  const headline = cleanedLines[0];
+
+  // Remaining lines form the description — also clean URL noise from within
+  const description = cleanedLines.slice(1)
+    .map(l => l.replace(/^[^\s]{0,3}\s*(www\.\S+\/?\s*)/i, '').trim()) // strip leading URL fragments
+    .filter(l => l.length > 5 && l !== headline)
+    .join(' ')
+    .substring(0, 300);
+
+  return { headline, description };
 }
 
 /**
