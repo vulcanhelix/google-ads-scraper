@@ -123,8 +123,13 @@ export async function scrapeAdvertiserAds(
     }
 
     // Convert intercepted creatives to AdCreative[]
-    const interceptedCreatives = interceptor.getCreatives();
-    logger.info(`Total unique creatives from API: ${interceptedCreatives.length}`);
+    const allCreatives = interceptor.getCreatives();
+    logger.info(`Total unique creatives from API: ${allCreatives.length}`);
+
+    // Trim to maxResults BEFORE OCR to avoid wasting time on ads we won't return
+    const interceptedCreatives = filters?.maxResults
+      ? allCreatives.slice(0, filters.maxResults)
+      : allCreatives;
 
     // For text/search ads, try to extract headline/description from their preview URLs
     const browserContext = page.context();
@@ -138,7 +143,7 @@ export async function scrapeAdvertiserAds(
     const textAdCount = ads.filter((a) => a.headline).length;
     logger.info(`Ads with extracted headline: ${textAdCount}/${ads.length}`);
 
-    const finalAds = filters?.maxResults ? ads.slice(0, filters.maxResults) : ads;
+    const finalAds = ads;
 
     return {
       success: true,

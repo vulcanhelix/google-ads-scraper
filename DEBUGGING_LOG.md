@@ -751,7 +751,7 @@ git add -A && git commit -m "message" && git push origin main
 4. **Add caching** - Don't re-OCR the same image twice
 5. **Add region stats** - Capture region-specific ad data from API
 6. **Advertiser matching edge cases** - Domain name matching won't work if advertiser name doesn't contain domain (e.g., "Alphabet Inc." for google.com). May need fallback to highest ad count.
-7. **OCR runs on ALL 40 creatives even when maxResults=10** - Should limit OCR to only the creatives that will be returned
+7. ~~**OCR runs on ALL 40 creatives even when maxResults=10**~~ - ✅ Fixed: creatives now sliced to maxResults BEFORE OCR
 
 ---
 
