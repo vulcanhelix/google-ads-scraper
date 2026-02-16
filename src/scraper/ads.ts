@@ -180,42 +180,50 @@ async function convertInterceptedAds(
 
   // Extract text from ads
   if (extractHeadlines) {
-    logger.info(`Extracting headlines for ${creatives.length} creatives...`);
-    
-    for (let i = 0; i < creatives.length; i++) {
-      const creative = creatives[i];
-      
-      // Image ads: use OCR on the image
-      if (creative.imageUrl) {
-        try {
-          const ocrResult = await recognizeImageText(creative.imageUrl);
-          if (ocrResult.text && ocrResult.confidence > 40) {
-            const cleaned = cleanOcrText(ocrResult.text);
-            if (cleaned) {
-              ocrResults.set(creative.creativeId, cleaned);
-              logger.info(`OCR [${i + 1}/${creatives.length}]: "${cleaned.headline.substring(0, 50)}..." (${ocrResult.confidence}% confidence)`);
+    const imageCreatives = creatives.filter(c => c.imageUrl);
+    const textCreatives = creatives.filter(c => !c.imageUrl && c.textPreviewUrl && context);
+
+    logger.info(`Extracting headlines for ${creatives.length} creatives (${imageCreatives.length} image, ${textCreatives.length} text)...`);
+
+    // Image ads: OCR in parallel batches for speed
+    if (imageCreatives.length > 0) {
+      const batchSize = 3;
+      for (let b = 0; b < imageCreatives.length; b += batchSize) {
+        const batch = imageCreatives.slice(b, b + batchSize);
+        const results = await Promise.allSettled(
+          batch.map(async (creative) => {
+            const ocrResult = await recognizeImageText(creative.imageUrl!);
+            return { creative, ocrResult };
+          })
+        );
+        for (const result of results) {
+          if (result.status === 'fulfilled') {
+            const { creative, ocrResult } = result.value;
+            if (ocrResult.text && ocrResult.confidence > 40) {
+              const cleaned = cleanOcrText(ocrResult.text);
+              if (cleaned) {
+                ocrResults.set(creative.creativeId, cleaned);
+                logger.info(`OCR: "${cleaned.headline.substring(0, 50)}..." (${ocrResult.confidence}% confidence)`);
+              }
             }
           }
-        } catch (e) {
-          logger.debug(`OCR failed for ${creative.creativeId}: ${e}`);
         }
       }
-      // Text/search ads: render the textPreviewUrl in a browser page to extract copy
-      else if (creative.textPreviewUrl && context) {
-        try {
-          const extracted = await extractTextFromPreviewUrl(creative.textPreviewUrl, context);
-          if (extracted) {
-            ocrResults.set(creative.creativeId, extracted);
-            logger.info(`Preview [${i + 1}/${creatives.length}]: "${extracted.headline.substring(0, 50)}..."`);
-          }
-        } catch (e) {
-          logger.debug(`Preview extraction failed for ${creative.creativeId}: ${e}`);
-        }
-      }
+      await terminateWorker();
     }
 
-    // Release the shared Tesseract worker
-    await terminateWorker();
+    // Text/search ads: render preview URLs (fast timeout — these often fail)
+    for (const creative of textCreatives) {
+      try {
+        const extracted = await extractTextFromPreviewUrl(creative.textPreviewUrl!, context!);
+        if (extracted) {
+          ocrResults.set(creative.creativeId, extracted);
+          logger.info(`Preview: "${extracted.headline.substring(0, 50)}..."`);
+        }
+      } catch (e) {
+        logger.debug(`Preview extraction failed for ${creative.creativeId}: ${e}`);
+      }
+    }
   }
 
   for (const creative of creatives) {
@@ -446,9 +454,9 @@ async function extractTextFromPreviewUrl(
 ): Promise<{ headline: string; description: string } | null> {
   const page = await context.newPage();
   try {
-    await page.goto(previewUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
-    await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
-    await delay(2000);
+    await page.goto(previewUrl, { waitUntil: 'domcontentloaded', timeout: 8000 });
+    await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {});
+    await delay(1000);
 
     // Try to find ad content in iframes first, then fall back to main page
     let text = '';

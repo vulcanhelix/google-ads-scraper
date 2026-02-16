@@ -797,6 +797,25 @@ async function getWorker(): Promise<Worker> {
 
 ---
 
+#### Issue 7.3: Sequential OCR + slow text preview timeouts
+**Problem:** Image OCR ran sequentially (one at a time). Text ad preview rendering had 27s of timeouts (15s goto + 10s networkidle + 2s delay) and almost always failed, wasting ~20s per text ad.
+
+**Timing from Knowify run (5 ads):**
+- Image OCR: 3-4s each (fast, thanks to shared worker)
+- Text preview: ~20s each, returned nothing
+- Total: 62s for 5 ads (40s wasted on text previews)
+
+**Fix:**
+1. **Parallel OCR**: Pool of 3 Tesseract workers, process image ads in batches of 3 concurrently
+2. **Reduced text preview timeouts**: 8s goto + 5s networkidle + 1s delay (14s max vs 27s)
+3. **Process image ads first, text ads second** — image OCR is reliable, text previews are best-effort
+
+**Expected speedup:** 5 image ads: ~4s total (parallel) vs ~15s (sequential). 2 text ads: ~14s max vs ~40s.
+
+**Status:** ✅ Fixed
+
+---
+
 ## Contact
 
 This debugging log was created to hand off to another LLM for continued development. The core issues have been fixed: headlines extracted via OCR/preview rendering, correct advertiser selected by domain matching, advertiserName included in output.
