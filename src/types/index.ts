@@ -32,6 +32,7 @@ export interface AdRegionStats {
 export interface AdCreative {
   id: string;
   advertiserId: string;
+  advertiserName?: string;
   format: AdFormat;
   platforms: AdPlatform[];
   targetDomain?: string;

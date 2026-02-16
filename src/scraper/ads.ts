@@ -173,30 +173,23 @@ async function convertInterceptedAds(
   const ads: AdCreative[] = [];
   const ocrResults = new Map<string, { headline: string; description: string }>();
 
-  // Use OCR to extract text from image URLs (fast)
+  // Extract text from ads
   if (extractHeadlines) {
-    logger.info(`Extracting headlines via OCR for ${creatives.length} creatives...`);
+    logger.info(`Extracting headlines for ${creatives.length} creatives...`);
     
     for (let i = 0; i < creatives.length; i++) {
       const creative = creatives[i];
-      const imageUrl = creative.imageUrl;
       
-      if (imageUrl) {
+      // Image ads: use OCR on the image
+      if (creative.imageUrl) {
         try {
-          const ocrResult = await recognizeImageText(imageUrl);
+          const ocrResult = await recognizeImageText(creative.imageUrl);
           if (ocrResult.text && ocrResult.confidence > 40) {
-            // Clean up OCR text - remove common noise
-            const cleanText = ocrResult.text
-              .replace(/^Sponsored\s*/i, '')
-              .replace(/\s+/g, ' ')
-              .trim();
-            
-            // Split into lines and filter out noise
-            const lines = cleanText.split('\n')
+            const lines = ocrResult.text.split('\n')
               .map(l => l.trim())
               .filter(l => l.length > 3)
               .filter(l => !l.match(/^Sponsored$/i))
-              .filter(l => !l.match(/^T\s*www\./i))  // URL lines
+              .filter(l => !l.match(/^T?\s*www\./i))
               .filter(l => !l.match(/^\.?$/));
             
             if (lines.length > 0) {
@@ -214,6 +207,18 @@ async function convertInterceptedAds(
           logger.debug(`OCR failed for ${creative.creativeId}: ${e}`);
         }
       }
+      // Text/search ads: render the textPreviewUrl in a browser page to extract copy
+      else if (creative.textPreviewUrl && context) {
+        try {
+          const extracted = await extractTextFromPreviewUrl(creative.textPreviewUrl, context);
+          if (extracted) {
+            ocrResults.set(creative.creativeId, extracted);
+            logger.info(`Preview [${i + 1}/${creatives.length}]: "${extracted.headline.substring(0, 50)}..."`);
+          }
+        } catch (e) {
+          logger.debug(`Preview extraction failed for ${creative.creativeId}: ${e}`);
+        }
+      }
     }
   }
 
@@ -224,13 +229,14 @@ async function convertInterceptedAds(
     const ad: AdCreative = {
       id: creative.creativeId,
       advertiserId,
+      advertiserName: creative.advertiserName || undefined,
       format,
       platforms: ['unknown'],
       firstShown: timestampToIso(creative.firstShownTimestamp),
       lastShown: timestampToIso(creative.lastShownTimestamp),
       totalDaysShown: creative.totalDaysShown,
       detailsUrl: `https://adstransparency.google.com/advertiser/${advertiserId}/creative/${creative.creativeId}?region=anywhere`,
-      previewUrl: creative.imageUrl,
+      previewUrl: creative.imageUrl || creative.textPreviewUrl,
       imageUrl: creative.imageUrl,
       regionStats: [],
       headline: ocrResult?.headline,
@@ -361,6 +367,71 @@ async function extractFromDetailPage(
 
     return bestResult;
   } catch (e) {
+    return null;
+  } finally {
+    await page.close().catch(() => {});
+  }
+}
+
+/**
+ * Extract headline/description from a text ad's preview URL by rendering it in a browser page.
+ * The textPreviewUrl is a JS-rendered preview of a Google search ad.
+ */
+async function extractTextFromPreviewUrl(
+  previewUrl: string,
+  context: BrowserContext
+): Promise<{ headline: string; description: string } | null> {
+  const page = await context.newPage();
+  try {
+    await page.goto(previewUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
+    await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
+    await delay(2000);
+
+    // Try to find ad content in iframes first, then fall back to main page
+    let text = '';
+    const frames = page.frames();
+    for (const frame of frames) {
+      try {
+        const frameText = await frame.evaluate(() => document.body?.innerText || '').catch(() => '');
+        // Skip frames with JS source code or boilerplate
+        if (frameText && frameText.length > 10 && 
+            !frameText.includes('da=ca(this)') &&
+            !frameText.includes('function()') &&
+            !frameText.includes('window.wiz')) {
+          if (frameText.length > text.length) text = frameText;
+        }
+      } catch {}
+    }
+    if (!text || text.length < 10) {
+      text = await page.evaluate(() => document.body?.innerText || '');
+    }
+    if (!text || text.length < 10) return null;
+
+    // Skip if it looks like raw JS source
+    if (text.includes('da=ca(this)') || text.includes('var ') || text.match(/^[\{\[]/)) return null;
+
+    const lines = text.split('\n')
+      .map(l => l.trim())
+      .filter(l => l.length > 3)
+      .filter(l => !l.match(/^Sponsored$/i))
+      .filter(l => !l.match(/^Ad$/i))
+      .filter(l => !l.match(/^https?:\/\//i))
+      .filter(l => !l.match(/^www\./i))
+      .filter(l => !l.includes('googMsgType'))
+      .filter(l => !l.includes('function('))
+      .filter(l => !l.includes('var '))
+      .filter(l => l.length < 200);
+
+    if (lines.length === 0) return null;
+
+    const headline = lines[0];
+    const description = lines.slice(1)
+      .filter(l => l !== headline && l.length > 5)
+      .join(' ')
+      .substring(0, 300);
+
+    return { headline, description };
+  } catch {
     return null;
   } finally {
     await page.close().catch(() => {});

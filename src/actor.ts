@@ -29,7 +29,7 @@ interface Input {
       format, 
       platform, 
       maxResults = 20,
-      extractHeadlines = false,
+      extractHeadlines = true,
       proxyConfiguration 
     } = input;
 

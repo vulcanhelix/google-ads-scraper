@@ -144,6 +144,7 @@ export async function scrape(domain: string, options: ScrapeOptions): Promise<vo
       format: options.format as AdFormat | undefined,
       platform: options.platform as AdPlatform | undefined,
       maxResults: options.max,
+      extractHeadlines: true,
     };
 
     const scrapeResult = await scrapeAdvertiserAds(page, advertiser.id, filters);
