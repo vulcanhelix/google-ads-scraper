@@ -75,7 +75,6 @@ export async function lookupAdvertiserByDomain(
     logger.info(`API interceptor captured ${creatives.length} creatives`);
     
     if (creatives.length > 0) {
-      const first = creatives[0];
       const uniqueAdvertisers = new Map<string, { name: string; count: number }>();
       
       for (const c of creatives) {
@@ -88,11 +87,32 @@ export async function lookupAdvertiserByDomain(
       }
 
       logger.info(`Found ${uniqueAdvertisers.size} unique advertiser(s) from API`);
-      logger.info(`Primary advertiser: ${first.advertiserName} (${first.advertiserId})`);
+
+      // Pick the best advertiser: prefer name matching the domain, then highest ad count
+      const domainBase = domain.replace(/\.(com|org|net|io|co|ai|dev)$/i, '').toLowerCase();
+      let bestId = '';
+      let bestName = '';
+      let bestScore = -1;
+
+      for (const [id, info] of uniqueAdvertisers.entries()) {
+        const nameLower = info.name.toLowerCase();
+        let score = info.count;
+        // Strong boost if the advertiser name contains the domain name
+        if (nameLower.includes(domainBase)) {
+          score += 10000;
+        }
+        if (score > bestScore) {
+          bestScore = score;
+          bestId = id;
+          bestName = info.name;
+        }
+      }
+
+      logger.info(`Primary advertiser: ${bestName} (${bestId})`);
 
       const alternatives: AdvertiserInfo[] = [];
       for (const [id, info] of uniqueAdvertisers.entries()) {
-        if (id !== first.advertiserId) {
+        if (id !== bestId) {
           alternatives.push({
             id,
             name: info.name,
@@ -104,8 +124,8 @@ export async function lookupAdvertiserByDomain(
       return {
         success: true,
         advertiser: {
-          id: first.advertiserId,
-          name: first.advertiserName,
+          id: bestId,
+          name: bestName,
           verificationStatus: 'UNKNOWN',
         },
         alternatives: alternatives.length > 0 ? alternatives : undefined,
