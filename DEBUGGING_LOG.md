@@ -816,6 +816,24 @@ async function getWorker(): Promise<Worker> {
 
 ---
 
+#### Issue 7.4: Advertiser lookup fails silently when API returns 0 creatives
+**Problem:** After the speed optimizations deploy, a Knowify run failed with `Advertiser not found for domain: knowify.com`. The API interceptor captured 0 creatives during lookup. This was a transient Apify proxy/network issue (the API just didn't respond in time), NOT caused by the OCR code changes.
+
+**Root Cause:** The retry loop in `advertiser.ts` only retried when `page.goto()` threw an error. If navigation succeeded but the SearchCreatives API returned nothing (proxy issue, rate limiting, network blip), the code accepted 0 creatives and fell through to "not found."
+
+**Log evidence:**
+```
+Connected, waiting for response...
+API interceptor captured 0 creatives
+Scrape failed: Error: Advertiser not found for domain: knowify.com
+```
+
+**Fix:** Changed retry logic to check `interceptor.size > 0` after each attempt. If 0 creatives captured, retry up to 3 times with 3s backoff between attempts.
+
+**Status:** ✅ Fixed
+
+---
+
 ## Contact
 
 This debugging log was created to hand off to another LLM for continued development. The core issues have been fixed: headlines extracted via OCR/preview rendering, correct advertiser selected by domain matching, advertiserName included in output.

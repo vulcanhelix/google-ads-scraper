@@ -35,14 +35,13 @@ export async function lookupAdvertiserByDomain(
     
     logger.info(`Navigating to: ${url}`);
     
-    let navigated = false;
     let attempts = 0;
     const maxAttempts = 3;
     
-    while (!navigated && attempts < maxAttempts) {
+    while (attempts < maxAttempts) {
       attempts++;
       try {
-        logger.info(`Navigation attempt ${attempts}/${maxAttempts}...`);
+        logger.info(`Lookup attempt ${attempts}/${maxAttempts}...`);
         
         await page.goto(url, {
           waitUntil: 'commit',
@@ -59,17 +58,23 @@ export async function lookupAdvertiserByDomain(
           delay(30000),
         ]);
         
-        navigated = true;
+        await delay(2000);
+        await page.waitForLoadState('domcontentloaded').catch(() => {});
+        await delay(1000);
+
+        if (interceptor.size > 0) break;
+
+        // API returned nothing — retry if we have attempts left
+        logger.warn(`Attempt ${attempts}: API interceptor captured 0 creatives, retrying...`);
+        if (attempts < maxAttempts) {
+          await delay(3000);
+        }
       } catch (e) {
-        logger.warn(`Navigation attempt ${attempts} failed: ${e}`);
+        logger.warn(`Lookup attempt ${attempts} failed: ${e}`);
         if (attempts === maxAttempts) throw e;
         await delay(3000);
       }
     }
-
-    await delay(2000);
-    await page.waitForLoadState('domcontentloaded').catch(() => {});
-    await delay(1000);
 
     const creatives = interceptor.getCreatives();
     logger.info(`API interceptor captured ${creatives.length} creatives`);
