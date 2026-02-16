@@ -5,31 +5,26 @@ export interface OcrResult {
   confidence: number;
 }
 
-const workerPool: Worker[] = [];
-const POOL_SIZE = 3;
+let sharedWorker: Worker | null = null;
 
-/** Initialize a pool of Tesseract workers for parallel OCR */
-async function ensurePool(): Promise<void> {
-  if (workerPool.length >= POOL_SIZE) return;
-  const needed = POOL_SIZE - workerPool.length;
-  const newWorkers = await Promise.all(
-    Array.from({ length: needed }, () => createWorker('eng'))
-  );
-  workerPool.push(...newWorkers);
+/** Get or create a reusable Tesseract worker (avoids ~10s init per image) */
+async function getWorker(): Promise<Worker> {
+  if (!sharedWorker) {
+    sharedWorker = await createWorker('eng');
+  }
+  return sharedWorker;
 }
 
-/** Terminate all workers when done */
+/** Terminate the shared worker when done with all OCR */
 export async function terminateWorker(): Promise<void> {
-  await Promise.all(workerPool.map(w => w.terminate()));
-  workerPool.length = 0;
+  if (sharedWorker) {
+    await sharedWorker.terminate();
+    sharedWorker = null;
+  }
 }
-
-let nextWorkerIndex = 0;
 
 export async function recognizeImageText(imageUrl: string): Promise<OcrResult> {
-  await ensurePool();
-  const worker = workerPool[nextWorkerIndex % workerPool.length];
-  nextWorkerIndex++;
+  const worker = await getWorker();
   const result = await worker.recognize(imageUrl);
   return {
     text: result.data.text || '',

@@ -180,50 +180,41 @@ async function convertInterceptedAds(
 
   // Extract text from ads
   if (extractHeadlines) {
-    const imageCreatives = creatives.filter(c => c.imageUrl);
-    const textCreatives = creatives.filter(c => !c.imageUrl && c.textPreviewUrl && context);
+    logger.info(`Extracting headlines for ${creatives.length} creatives...`);
 
-    logger.info(`Extracting headlines for ${creatives.length} creatives (${imageCreatives.length} image, ${textCreatives.length} text)...`);
+    for (let i = 0; i < creatives.length; i++) {
+      const creative = creatives[i];
 
-    // Image ads: OCR in parallel batches for speed
-    if (imageCreatives.length > 0) {
-      const batchSize = 3;
-      for (let b = 0; b < imageCreatives.length; b += batchSize) {
-        const batch = imageCreatives.slice(b, b + batchSize);
-        const results = await Promise.allSettled(
-          batch.map(async (creative) => {
-            const ocrResult = await recognizeImageText(creative.imageUrl!);
-            return { creative, ocrResult };
-          })
-        );
-        for (const result of results) {
-          if (result.status === 'fulfilled') {
-            const { creative, ocrResult } = result.value;
-            if (ocrResult.text && ocrResult.confidence > 40) {
-              const cleaned = cleanOcrText(ocrResult.text);
-              if (cleaned) {
-                ocrResults.set(creative.creativeId, cleaned);
-                logger.info(`OCR: "${cleaned.headline.substring(0, 50)}..." (${ocrResult.confidence}% confidence)`);
-              }
+      // Image ads: OCR via shared worker (~3-4s per image after init)
+      if (creative.imageUrl) {
+        try {
+          const ocrResult = await recognizeImageText(creative.imageUrl);
+          if (ocrResult.text && ocrResult.confidence > 40) {
+            const cleaned = cleanOcrText(ocrResult.text);
+            if (cleaned) {
+              ocrResults.set(creative.creativeId, cleaned);
+              logger.info(`OCR [${i + 1}/${creatives.length}]: "${cleaned.headline.substring(0, 50)}..." (${ocrResult.confidence}% confidence)`);
             }
           }
+        } catch (e) {
+          logger.debug(`OCR failed for ${creative.creativeId}: ${e}`);
         }
       }
-      await terminateWorker();
+      // Text/search ads: render preview URL (fast timeout)
+      else if (creative.textPreviewUrl && context) {
+        try {
+          const extracted = await extractTextFromPreviewUrl(creative.textPreviewUrl, context);
+          if (extracted) {
+            ocrResults.set(creative.creativeId, extracted);
+            logger.info(`Preview [${i + 1}/${creatives.length}]: "${extracted.headline.substring(0, 50)}..."`);
+          }
+        } catch (e) {
+          logger.debug(`Preview extraction failed for ${creative.creativeId}: ${e}`);
+        }
+      }
     }
 
-    // Text/search ads: render preview URLs (fast timeout — these often fail)
-    for (const creative of textCreatives) {
-      try {
-        const extracted = await extractTextFromPreviewUrl(creative.textPreviewUrl!, context!);
-        if (extracted) {
-          ocrResults.set(creative.creativeId, extracted);
-          logger.info(`Preview: "${extracted.headline.substring(0, 50)}..."`);
-        }
-      } catch (e) {
-        logger.debug(`Preview extraction failed for ${creative.creativeId}: ${e}`);
-      }
-    }
+    await terminateWorker();
   }
 
   for (const creative of creatives) {

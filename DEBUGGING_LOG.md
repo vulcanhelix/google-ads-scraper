@@ -689,6 +689,7 @@ for (const [id, info] of uniqueAdvertisers.entries()) {
 10. **Text ads have `textPreviewUrl`, not `imageUrl`** - Different extraction path needed (browser render vs OCR)
 11. **Reuse Tesseract workers** - Creating/destroying per image adds ~10s overhead each. Reuse one shared worker.
 12. **Google Ads screenshots contain browser chrome** - OCR reads favicon artifacts, URL bars, "Sponsored" labels. Must clean aggressively.
+13. **Parallel worker pools are SLOWER on Apify** - CPU-intensive worker init in parallel causes contention on single-core containers. Sequential with shared worker is faster.
 
 ---
 
@@ -797,20 +798,18 @@ async function getWorker(): Promise<Worker> {
 
 ---
 
-#### Issue 7.3: Sequential OCR + slow text preview timeouts
-**Problem:** Image OCR ran sequentially (one at a time). Text ad preview rendering had 27s of timeouts (15s goto + 10s networkidle + 2s delay) and almost always failed, wasting ~20s per text ad.
+#### Issue 7.3: Parallel worker pool SLOWER than single worker on Apify
+**Problem:** Attempted to speed up OCR with a pool of 3 Tesseract workers processing images in parallel. On Apify's resource-constrained container, this was COUNTERPRODUCTIVE.
 
-**Timing from Knowify run (5 ads):**
-- Image OCR: 3-4s each (fast, thanks to shared worker)
-- Text preview: ~20s each, returned nothing
-- Total: 62s for 5 ads (40s wasted on text previews)
+**Timing comparison (3 image ads):**
+- Single shared worker: ~10s init + 3×4s = ~22s total
+- 3-worker pool: ~14s per worker (parallel init with CPU contention) = ~42s total
 
-**Fix:**
-1. **Parallel OCR**: Pool of 3 Tesseract workers, process image ads in batches of 3 concurrently
-2. **Reduced text preview timeouts**: 8s goto + 5s networkidle + 1s delay (14s max vs 27s)
-3. **Process image ads first, text ads second** — image OCR is reliable, text previews are best-effort
+**Root Cause:** Tesseract worker initialization is CPU-intensive (~10-14s). On a single-core Apify container, initializing 3 workers in parallel causes CPU contention — each worker takes longer than if initialized alone.
 
-**Expected speedup:** 5 image ads: ~4s total (parallel) vs ~15s (sequential). 2 text ads: ~14s max vs ~40s.
+**Fix:** Reverted to single shared worker. Reduced text preview timeouts from 27s to 14s max (8s goto + 5s networkidle + 1s delay).
+
+**Lesson:** On resource-constrained environments (Apify, AWS Lambda, etc.), parallel worker pools for CPU-intensive tasks often hurt more than help. Sequential with shared resources is faster.
 
 **Status:** ✅ Fixed
 
