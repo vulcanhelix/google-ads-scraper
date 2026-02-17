@@ -1,0 +1,9 @@
+{
+	"actorSpecification": 1,
+	"environmentVariables": {
+		"npm_config_loglevel": "warn"
+	},
+	"name": "google-ads-scraper",
+	"version": "1.0.0",
+	"buildTag": "latest"
+}
