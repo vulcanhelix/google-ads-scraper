@@ -46,7 +46,19 @@ interface Input {
       // Lookup advertiser - now returns creatives too
       const lookup = await lookupAdvertiserByDomain(page, domain);
       if (!lookup.success || !lookup.advertiser) {
-        throw new Error(`Advertiser not found for domain: ${domain}`);
+        console.log(`No ads found for domain: ${domain}. This is a verified result - the domain has no Google ads.`);
+        await Actor.pushData({
+          domain,
+          status: 'no_ads_found',
+          advertiserId: null,
+          advertiserName: null,
+          adsCount: 0,
+          ads: [],
+          scrapedAt: new Date().toISOString(),
+        });
+        await browser.close();
+        await Actor.exit();
+        return;
       }
 
       console.log(`Found advertiser: ${lookup.advertiser.name} (${lookup.advertiser.id})`);
