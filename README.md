@@ -1,4 +1,4 @@
-# ![Google Ads Scraper](icon.png) Google Ads Scraper
+# ![Icon](icon.png) Free Google Ads Scraper
 
 **The most robust, domain-focused Google Ads Scraper on Apify. Extract active ads, creative details, and landing pages with built-in OCR and stealth technology.**
 
