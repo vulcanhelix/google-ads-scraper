@@ -1,4 +1,4 @@
-### 🚀 Domain Intelligence & OCR: The Ultimate Google Ads Scraper
+## 🚀 Domain Intelligence & OCR: The Ultimate Google Ads Scraper
 
 **The most robust, domain-focused Google Ads Scraper on Apify. Extract active ads, creative details, and landing pages with built-in OCR and stealth technology.**
 
@@ -23,7 +23,23 @@ Unlike generic scrapers, this tool is engineered for **Competitor Intelligence**
 
 ---
 
-## 📖 How to Use
+## � Use Cases
+
+### 1. Cold Outreach & Lead Gen
+Identify companies spending money on Google Ads but running suboptimal campaigns. Use the **OCR data** to analyze their ad copy at scale, find weak headlines, and pitch your creative services or SEO alternatives personalized to their current ads.
+
+### 2. Competitor Intelligence
+Stop guessing what your competitors are doing. Enter their domain to retrieve their **entire active ad portfolio**. Analyze their headlines, creative angles, and landing pages to reverse-engineer their strategy.
+
+### 3. Ad Creative Swipe Files
+Building a new campaign? Scrape the top 10 players in your niche (e.g., `monday.com`, `asana.com`, `clickup.com`) to build a massive library of **high-performing ad creatives** (images, videos, text) for inspiration.
+
+### 4. Market Research & Trends
+Planning to enter a new market? See how established brands are positioning themselves in different regions. Use the **Region** filter to see how major players advertise in the US vs. Germany vs. Japan.
+
+---
+
+## �📖 How to Use
 
 ### 1. Simple Domain Search (Recommended)
 The easiest way to start is by providing the target domain.
