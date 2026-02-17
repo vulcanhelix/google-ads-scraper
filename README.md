@@ -1,4 +1,4 @@
-# 🚀 Domain Intelligence & OCR: The Ultimate Google Ads Scraper
+### 🚀 Domain Intelligence & OCR: The Ultimate Google Ads Scraper
 
 **The most robust, domain-focused Google Ads Scraper on Apify. Extract active ads, creative details, and landing pages with built-in OCR and stealth technology.**
 
