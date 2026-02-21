@@ -30,7 +30,7 @@ flowchart TB
     end
 
     subgraph AntiDetection["Anti-Detection Measures"]
-        RandomUA["Random User Agent<br/>from config"]
+        RandomUA["Random User Agent<br/>Chrome 144/145<br/>from config"]
         ViewportSpoof["Viewport spoofing"]
         LanguageSpoof["Language spoofing"]
         WebdriverSpoof["navigator.webdriver<br/>undefined"]
@@ -47,14 +47,13 @@ flowchart TB
     PluginSpoof --> InitScript
     HardwareSpoof --> InitScript
 
-    style CreateBrowser fill:#e1f5fe
-    style CreateContext fill:#fff3e0
-    style CreatePage fill:#e8f5e9
-    style AntiDetection fill:#fce4ec
+    style CreateBrowser fill:#1a237e,color:#ffffff
+    style CreateContext fill:#e65100,color:#ffffff
+    style CreatePage fill:#1b5e20,color:#ffffff
+    style AntiDetection fill:#880e4f,color:#ffffff
 ```
 
 ## Source Files
 
 - `src/scraper/browser.ts` - Browser, context, and page creation
 - `src/config.ts` - User agents and configuration
-

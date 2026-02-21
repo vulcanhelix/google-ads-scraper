@@ -2,60 +2,143 @@
 
 ```mermaid
 flowchart TB
-    Start([Scrape Advertiser Ads]) --> SetupInterceptor["Setup<br/>ApiInterceptor"]
-    SetupInterceptor --> BuildURL[Build URL with<br/>filters & params]
-    BuildURL --> BlockResources[Block Image/CSS/Font<br/>Resources]
-    BlockResources --> Navigate["Navigate to<br/>Advertiser Page"]
+    Start([scrapeAdvertiserAds]) --> CheckPre{"preInterceptedCreatives<br/>provided?"}
 
-    Navigate --> WaitAPI["Wait for<br/>SearchCreatives API"]
-    WaitAPI --> Delay1["Delay 3s<br/>Process Response"]
-    Delay1 --> WaitNetwork["Wait for<br/>networkidle"]
-    WaitNetwork --> Delay2["Delay 1s"]
+    %% Pre-intercepted branch
+    CheckPre -->|Yes| CheckEnough{"preIntercepted.length<br/>>= maxResults?"}
+    CheckEnough -->|Yes| SkipNav["Use pre-intercepted creatives<br/>(skip navigation)"]
+    CheckEnough -->|No| FetchMore["fetchCreativesViaNavigation()"]
+    FetchMore --> Merge["Merge & deduplicate<br/>by creativeId"]
 
-    Delay2 --> ExtractCount[Extract Total<br/>Ad Count from UI]
-    ExtractCount --> LogStats["Log: Page count vs<br/>Interceptor count"]
+    %% No pre-intercepted branch
+    CheckPre -->|No| FullFetch["fetchCreativesViaNavigation()"]
 
-    ScrollLoop{Scroll & Capture<br/>New Ads} --> ScrollDown[Scroll Down<br/>800px]
-    ScrollDown --> DelayScroll[Delay 1.5s]
-    DelayScroll --> CheckNew{Check for new<br/>intercepts?}
+    SkipNav --> Trim
+    Merge --> Trim
+    FullFetch --> Trim
 
-    CheckNew -->|Yes| LogNew["Log new count"]
-    LogNew --> CheckMax{Check maxResults<br/>limit?}
-    CheckMax -->|Not reached| ScrollLoop
+    %% Trim before OCR
+    Trim["Trim to maxResults<br/>BEFORE processing"] --> ConvertAds["convertInterceptedAds()"]
 
-    CheckNew -->|No| IncrementNoNew[Increment<br/>noNew counter]
-    IncrementNoNew --> CheckNoNew{noNew >= 5?}
-    CheckNoNew -->|Yes| FinishScroll[Finish Scrolling]
-    CheckNoNew -->|No| CheckBottom{At bottom of<br/>page?}
+    %% --- fetchCreativesViaNavigation detail ---
+    subgraph NavSub ["fetchCreativesViaNavigation()"]
+        direction TB
+        SetupInt["Setup ApiInterceptor<br/>& attach to page"] --> BuildURL["Build URL with<br/>filters & region"]
+        BuildURL --> BlockRes["Block image/CSS/font<br/>resources"]
+        BlockRes --> Navigate["Navigate to<br/>advertiser page"]
+        Navigate --> WaitAPI["Wait for<br/>SearchCreatives API"]
+        WaitAPI --> Delay1["Delay 3s +<br/>networkidle + 1s"]
+        Delay1 --> ExtractCount["Extract total ad count<br/>from page text"]
+        ExtractCount --> ScrollLoop{"Scroll loop"}
+        ScrollLoop --> ScrollDown["Scroll down 800px<br/>+ delay 1.5s"]
+        ScrollDown --> CheckNew{"New intercepts?"}
+        CheckNew -->|Yes| CheckMax{"interceptor.size<br/>>= maxResults?"}
+        CheckMax -->|No| ScrollLoop
+        CheckMax -->|Yes| FinishScroll["Finish scrolling"]
+        CheckNew -->|No| IncNoNew["Increment<br/>noNewCount"]
+        IncNoNew --> CheckNoNew{"noNewCount >= 5?"}
+        CheckNoNew -->|Yes| FinishScroll
+        CheckNoNew -->|No| CheckBottom{"At bottom<br/>of page?"}
+        CheckBottom -->|No| ScrollLoop
+        CheckBottom -->|Yes| DelayBottom["Delay 2s"]
+        DelayBottom --> CheckGrew{"Height increased?"}
+        CheckGrew -->|Yes| ScrollLoop
+        CheckGrew -->|No| FinishScroll
+        FinishScroll --> ReturnCreatives["Return creatives<br/>+ totalCount"]
+    end
 
-    CheckMax -->|Reached| FinishScroll
-    CheckBottom -->|Yes| DelayBottom[Delay 2s]
-    CheckBottom -->|No| ScrollLoop
-    DelayBottom --> CheckGrew{Did height<br/>increase?}
-    CheckGrew -->|Yes| ScrollLoop
-    CheckGrew -->|No| FinishScroll
+    %% --- convertInterceptedAds detail ---
+    subgraph ConvertSub ["convertInterceptedAds()"]
+        direction TB
+        CheckExtract{"extractHeadlines<br/>enabled?"}
+        CheckExtract -->|No| BuildAds
+        CheckExtract -->|Yes| EachCreative{"For each creative"}
+        EachCreative --> IsImage{"Has imageUrl?"}
+        IsImage -->|Yes| OCR["recognizeImageText()<br/>via Tesseract OCR"]
+        OCR --> CleanOCR["cleanOcrText()<br/>Remove browser chrome noise"]
+        CleanOCR --> StoreResult["Store in ocrResults map"]
+        IsImage -->|No| HasPreview{"Has textPreviewUrl?"}
+        HasPreview -->|Yes| RenderPreview["extractTextFromPreviewUrl()<br/>Render in browser page"]
+        RenderPreview --> ParseFrames["Parse iframe text<br/>Filter noise/JS/boilerplate"]
+        ParseFrames --> StoreResult
+        HasPreview -->|No| EachCreative
+        StoreResult --> EachCreative
+        EachCreative -->|Done| TermWorker["terminateWorker()"]
+        TermWorker --> BuildAds["Build AdCreative[]<br/>with OCR results"]
+    end
 
-    FinishScroll --> GetCreatives[Get all<br/>InterceptedCreatives]
-    GetCreatives --> ConvertFormat[Convert to<br/>AdCreative objects]
-    ConvertFormat --> ExtractText[Extract headline/description<br/>for text ads]
+    ConvertAds --> ReturnResult["Return AdScrapeResult<br/>{success, ads, totalFound}"]
 
-    ExtractText --> DetailLoop{For each text ad}
-    DetailLoop --> OpenDetail[Open detail page]
-    OpenDetail --> ExtractIframe[Extract from iframe<br/>content]
-    ExtractIframe --> ParseText[Parse headline &<br/>description]
-    ParseText --> AddToResults[Add to results]
-    AddToDetailLoop --> DetailLoop
+    %% --- Detail page fallback (extractFromDetailPage) ---
+    subgraph DetailFallback ["extractFromDetailPage() — fallback"]
+        direction TB
+        OpenDetail["Open new page<br/>Navigate to detail URL"] --> WaitSettle["Wait for DOM +<br/>networkidle + scroll"]
+        WaitSettle --> ScanFrames["Scan all frames"]
+        ScanFrames --> FilterNoise["Filter CSS/JS/boilerplate<br/>noise from frame text"]
+        FilterNoise --> PickBest["Pick best headline +<br/>description"]
+    end
 
-    DetailLoop -->|Done| ApplyMax[Apply maxResults<br/>limit]
-    ApplyMax --> ReturnResult[Return<br/>AdScrapeResult]
+    %% Styles - dark fills with light text
+    style Start fill:#2e7d32,color:#ffffff
+    style CheckPre fill:#1565c0,color:#ffffff
+    style CheckEnough fill:#1565c0,color:#ffffff
+    style SkipNav fill:#2e7d32,color:#ffffff
+    style FetchMore fill:#5e35b1,color:#ffffff
+    style Merge fill:#5e35b1,color:#ffffff
+    style FullFetch fill:#5e35b1,color:#ffffff
+    style Trim fill:#c62828,color:#ffffff
+    style ConvertAds fill:#e65100,color:#ffffff
+    style ReturnResult fill:#2e7d32,color:#ffffff
 
-    style Start fill:#4caf50
-    style ScrollLoop fill:#9c27b0
-    style DetailLoop fill:#ff9800
+    style SetupInt fill:#4527a0,color:#ffffff
+    style BuildURL fill:#4527a0,color:#ffffff
+    style BlockRes fill:#4527a0,color:#ffffff
+    style Navigate fill:#4527a0,color:#ffffff
+    style WaitAPI fill:#4527a0,color:#ffffff
+    style Delay1 fill:#4527a0,color:#ffffff
+    style ExtractCount fill:#4527a0,color:#ffffff
+    style ScrollLoop fill:#6a1b9a,color:#ffffff
+    style ScrollDown fill:#6a1b9a,color:#ffffff
+    style CheckNew fill:#6a1b9a,color:#ffffff
+    style CheckMax fill:#6a1b9a,color:#ffffff
+    style IncNoNew fill:#6a1b9a,color:#ffffff
+    style CheckNoNew fill:#6a1b9a,color:#ffffff
+    style CheckBottom fill:#6a1b9a,color:#ffffff
+    style DelayBottom fill:#6a1b9a,color:#ffffff
+    style CheckGrew fill:#6a1b9a,color:#ffffff
+    style FinishScroll fill:#6a1b9a,color:#ffffff
+    style ReturnCreatives fill:#4527a0,color:#ffffff
+
+    style CheckExtract fill:#e65100,color:#ffffff
+    style EachCreative fill:#bf360c,color:#ffffff
+    style IsImage fill:#bf360c,color:#ffffff
+    style OCR fill:#bf360c,color:#ffffff
+    style CleanOCR fill:#bf360c,color:#ffffff
+    style HasPreview fill:#bf360c,color:#ffffff
+    style RenderPreview fill:#bf360c,color:#ffffff
+    style ParseFrames fill:#bf360c,color:#ffffff
+    style StoreResult fill:#bf360c,color:#ffffff
+    style TermWorker fill:#bf360c,color:#ffffff
+    style BuildAds fill:#e65100,color:#ffffff
+
+    style OpenDetail fill:#37474f,color:#ffffff
+    style WaitSettle fill:#37474f,color:#ffffff
+    style ScanFrames fill:#37474f,color:#ffffff
+    style FilterNoise fill:#37474f,color:#ffffff
+    style PickBest fill:#37474f,color:#ffffff
 ```
 
 ## Source Files
 
-- `src/scraper/ads.ts` - Main ad scraping logic
-- `src/scraper/parser.ts` - Ad detail parsing (used for text ad extraction)
+- `src/scraper/ads.ts` - Main ad scraping logic with `scrapeAdvertiserAds()`, `fetchCreativesViaNavigation()`, `convertInterceptedAds()`
+- `src/scraper/api-interceptor.ts` - `ApiInterceptor` class and `InterceptedCreative` type
+- `src/ocr/tesseract.ts` - `recognizeImageText()` for OCR on image ads, `terminateWorker()`
 
+## Key Behaviors
+
+1. **Pre-intercepted creatives** — If `preInterceptedCreatives` are passed and satisfy `maxResults`, navigation is skipped entirely
+2. **Merge & dedup** — When pre-intercepted creatives exist but are insufficient, new creatives are fetched and merged by `creativeId`
+3. **Trim before OCR** — Creatives are sliced to `maxResults` *before* expensive OCR/preview processing
+4. **Image ads → OCR** — `recognizeImageText()` + `cleanOcrText()` strips browser chrome noise (favicon artifacts, "Sponsored" labels, URL bars)
+5. **Text ads → Preview rendering** — `extractTextFromPreviewUrl()` renders the JS preview in a browser page and parses iframe content
+6. **Detail page fallback** — `extractFromDetailPage()` navigates to the ad detail URL and scans iframes; used as a fallback, not the primary method

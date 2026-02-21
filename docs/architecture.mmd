@@ -1,12 +1,14 @@
 flowchart LR
   subgraph Client
-    CLI[CLI: npm run scrape / ocr]
+    CLI[CLI: npm run scrape]
     API[HTTP API]
+    Actor[Apify Actor]
   end
 
   subgraph App[Google Ads Scraper]
     Server[Fastify Server]
     Scraper[Playwright Scraper]
+    Interceptor[API Interceptor]
     OCR[Tesseract OCR]
     Queue[In-memory OCR Queue]
     Export[JSON/CSV Export]
@@ -14,21 +16,26 @@ flowchart LR
 
   subgraph Data[Storage]
     Neon[(NeonDB / Postgres)]
+    KVS[(Apify KVS)]
   end
 
   subgraph External[External Services]
     GATC[Google Ads Transparency Center]
-    Render[Render Hosting]
+    Proxy[Apify Proxy]
   end
 
   CLI --> Scraper
   API --> Server
+  Actor --> Scraper
+  Actor --> KVS
   Server --> Scraper
   Server --> Queue
   Queue --> OCR
+  Scraper --> Interceptor
+  Interceptor --> GATC
   Scraper --> GATC
+  Scraper --> Proxy
   Scraper --> Neon
   OCR --> Neon
   Export --> Neon
   Server --> Neon
-  Render --> Server
